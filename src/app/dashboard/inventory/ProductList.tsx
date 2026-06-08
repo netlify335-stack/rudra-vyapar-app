@@ -3,11 +3,13 @@
 import { useState, useMemo } from "react";
 import { formatINR, formatNumber } from "@/lib/format";
 import { EditProductModal } from "./EditProductModal";
+import { AdjustStockModal } from "./AdjustStockModal";
 
 export function ProductList({ initialList }: { initialList: any[] }) {
   const [filterCategory, setFilterCategory] = useState("All");
   const [visibleCount, setVisibleCount] = useState(20);
   const [editingProduct, setEditingProduct] = useState<any>(null);
+  const [adjustingProduct, setAdjustingProduct] = useState<any>(null);
 
   const categories = ["All", ...Array.from(new Set(initialList.map((p) => p.category).filter(Boolean)))];
 
@@ -32,6 +34,7 @@ export function ProductList({ initialList }: { initialList: any[] }) {
   return (
     <div>
       {editingProduct && <EditProductModal product={editingProduct} onClose={() => setEditingProduct(null)} />}
+      {adjustingProduct && <AdjustStockModal product={adjustingProduct} onClose={() => setAdjustingProduct(null)} onAdjusted={() => window.location.reload()} />}
       <div className="flex items-center gap-4 border-b border-slate-100 p-4">
         <div className="text-sm font-semibold text-slate-700">Filter by Category:</div>
         <select
@@ -91,6 +94,7 @@ export function ProductList({ initialList }: { initialList: any[] }) {
                   
                   <td className="px-5 py-2.5 text-right">
                       <div className="flex justify-end gap-3">
+                        <button onClick={() => setAdjustingProduct(p)} className="text-xs font-bold text-indigo-600 hover:text-indigo-700">Adjust</button>
                         <button onClick={() => setEditingProduct(p)} className="text-xs font-bold text-orange-600 hover:text-orange-700">Edit</button>
                         <button onClick={() => deleteProduct(p.id, p.name)} className="text-xs font-bold text-rose-500 hover:text-rose-700">Delete</button>
                       </div>

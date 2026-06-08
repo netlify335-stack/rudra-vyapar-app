@@ -25,7 +25,14 @@ export default async function InvoiceDetail({ params }: { params: Promise<{ id: 
     <div className="mx-auto max-w-4xl space-y-4">
       <div className="no-print flex flex-wrap items-center justify-between gap-3">
         <Link href="/dashboard/invoices" className="text-sm font-semibold text-slate-600 hover:text-slate-900">← Back to invoices</Link>
-        <ShareButtons invoiceNo={inv.invoiceNo} amount={Number(inv.totalAmount)} phone={inv.partyPhone} storeName={store.name} partyName={inv.partyName} paymentMode={inv.paymentMode} />
+        <div className="flex gap-2 items-center">
+          {inv.type !== "estimate" && inv.type !== "return" && (
+            <Link href={`/dashboard/invoices/${inv.id}/return`} className="text-sm font-bold text-rose-600 border border-rose-200 bg-rose-50 px-3 py-1.5 rounded-lg hover:bg-rose-100">
+              ⟲ Return / Refund
+            </Link>
+          )}
+          <ShareButtons invoiceNo={inv.invoiceNo} amount={Number(inv.totalAmount)} phone={inv.partyPhone} storeName={store.name} partyName={inv.partyName} paymentMode={inv.paymentMode} />
+        </div>
       </div>
 
       <div className="rounded-2xl border border-slate-200 bg-white p-8 shadow-sm print:border-0 print:shadow-none">
@@ -39,7 +46,7 @@ export default async function InvoiceDetail({ params }: { params: Promise<{ id: 
           </div>
           <div className="text-right">
             <div className="rounded-lg bg-gradient-to-r from-orange-500 to-rose-500 px-4 py-1 text-xs font-bold uppercase tracking-wider text-white">
-              {inv.type === "purchase" ? "Purchase Bill" : "Tax Invoice"}
+              {inv.type === "estimate" ? "Estimate" : inv.type === "return" ? "Return Note" : inv.type === "purchase" ? "Purchase Bill" : "Tax Invoice"}
             </div>
             <div className="mt-2 text-lg font-bold text-slate-900">{inv.invoiceNo}</div>
             <div className="text-xs text-slate-600">Date: {formatDate(inv.invoiceDate)}</div>

@@ -336,3 +336,18 @@ export const licenses = pgTable("licenses", {
   isRevoked: boolean("is_revoked").default(false).notNull(),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
 });
+
+// EOD Reports
+export const eodReports = pgTable("eod_reports", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  storeId: uuid("store_id").references(() => stores.id).notNull(),
+  reportDate: date("report_date").notNull(),
+  openingBalance: numeric("opening_balance", { precision: 12, scale: 2 }).default("0").notNull(),
+  expectedCash: numeric("expected_cash", { precision: 12, scale: 2 }).notNull(),
+  actualCash: numeric("actual_cash", { precision: 12, scale: 2 }).notNull(),
+  expectedUpi: numeric("expected_upi", { precision: 12, scale: 2 }).notNull(),
+  actualUpi: numeric("actual_upi", { precision: 12, scale: 2 }).notNull(),
+  discrepancy: numeric("discrepancy", { precision: 12, scale: 2 }).notNull(),
+  notes: text("notes"),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+});

@@ -13,6 +13,7 @@ const NAV: { href: string; label: string; icon: string; badge?: string }[] = [
   { href: "/dashboard/parties", label: "Parties", icon: "👥" },
   { href: "/dashboard/inventory", label: "Inventory", icon: "📦" },
   { href: "/dashboard/expenses", label: "Expenses", icon: "💸" },
+  { href: "/dashboard/eod", label: "EOD Register", icon: "🌙" },
   { href: "/dashboard/reports", label: "Reports & GST", icon: "📊" },
   { href: "/dashboard/settings", label: "Settings", icon: "⚙️" },
 ];

@@ -24,7 +24,7 @@ export async function POST(req: Request) {
     const storeId = await getActiveStoreId();
     if (!storeId) return Response.json({ ok: false, error: "No active store" }, { status: 400 });
     const body = (await req.json()) as {
-      type?: "sale" | "purchase";
+      type?: "sale" | "purchase" | "estimate" | "return";
       partyId?: string | null;
       partyName?: string;
       partyPhone?: string;
@@ -144,7 +144,7 @@ export async function POST(req: Request) {
         totalAmount: String(round2(tx + tax)),
       });
       
-      // Decrement stock for sales, increment for purchase
+      // Decrement stock for sales, increment for purchase, do nothing for estimate
       if (type === "sale") {
         if (it.variantId) {
           await db
@@ -181,7 +181,7 @@ export async function POST(req: Request) {
           remainingToDeduct -= deductAmount;
         }
 
-      } else {
+      } else if (type === "purchase") {
         if (it.variantId) {
           await db
             .update(productVariants)
@@ -196,8 +196,8 @@ export async function POST(req: Request) {
       }
     }
 
-    // Khata + party balance update on credit
-    if (creditAmount > 0 && body.partyId) {
+    // Khata + party balance update on credit (skip for estimates)
+    if (creditAmount > 0 && body.partyId && type !== "estimate") {
       const isSale = type === "sale";
       const paymentNoteStr = paymentMode === "partial" ? " (Partial Udhaar)" : "";
       

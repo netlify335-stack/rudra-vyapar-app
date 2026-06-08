@@ -159,10 +159,10 @@ export function POSClient({ products, customers, isPurchase = false, storeName }
       const partyName = customerId === "walkin"
         ? (walkinName.trim() || (isPurchase ? "Cash Supplier" : "Walk-in Customer"))
         : customers.find((c) => c.id === customerId)?.name ?? (isPurchase ? "Supplier" : "Customer");
-      const partyPhone = customerId === "walkin"
-        ? walkinPhone.trim()
-        : customers.find((c) => c.id === customerId)?.phone ?? "";
-
+        : (customer?.name ?? (isPurchase ? "Supplier" : "Customer"));
+      const partyPhone = customerId === "walkin" ? walkinPhone.trim() : (customer?.phone ?? "");
+      const partyAddress = customerId === "walkin" ? walkinAddress.trim() : (customer?.address ?? "");
+      
       const finalSplitAmt1 = Number(splitAmount1) || 0;
       const finalSplitAmt2 = totals.total - finalSplitAmt1;
 
@@ -170,11 +170,11 @@ export function POSClient({ products, customers, isPurchase = false, storeName }
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          type: isPurchase ? "purchase" : "sale",
-          partyId,
+          type: isPurchase ? "purchase" : (action === "estimate" ? "estimate" : "sale"),
+          partyId: customerId === "walkin" ? null : customerId,
           partyName,
           partyPhone,
-          partyAddress: customerId === "walkin" ? walkinAddress.trim() : (customers.find((c) => c.id === customerId)?.address ?? ""),
+          partyAddress,
           paymentMode,
           splitPaymentMode1: paymentMode === "partial" ? splitMode1 : undefined,
           splitAmount1: paymentMode === "partial" ? finalSplitAmt1 : undefined,
@@ -534,6 +534,15 @@ export function POSClient({ products, customers, isPurchase = false, storeName }
             >
               {saving ? "Saving..." : `Save Bill · ${formatINR(totals.total)}`}
             </button>
+            {!isPurchase && (
+              <button
+                onClick={() => saveInvoice("estimate")}
+                disabled={saving || cart.length === 0}
+                className="w-full rounded-xl border border-slate-300 bg-white px-4 py-2.5 text-sm font-bold text-slate-700 shadow-sm transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                Save as Estimate (Kaccha Bill)
+              </button>
+            )}
             <div className="flex gap-2">
               <button
                 onClick={() => {
