@@ -1,20 +1,61 @@
 import { db } from "@/db";
-import { invoices } from "@/db/schema";
-import { and, desc, eq } from "drizzle-orm";
+import { invoices, parties } from "@/db/schema";
+import { and, desc, eq, gte, lte } from "drizzle-orm";
 import Link from "next/link";
 import { getActiveStoreId } from "@/lib/session";
 import { formatINR, formatDate } from "@/lib/format";
+import { InvoiceFilter } from "./InvoiceFilter";
 
 export const dynamic = "force-dynamic";
 
-export default async function InvoicesPage() {
+export default async function InvoicesPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ [key: string]: string | string[] | undefined }>;
+}) {
   const storeId = (await getActiveStoreId())!;
+  const params = await searchParams;
+  const dateFilter = (params.dateFilter as string) || "all";
+  const start = (params.start as string) || "";
+  const end = (params.end as string) || "";
+  const customer = (params.customer as string) || "all";
+  const mode = (params.mode as string) || "all";
+
+  let dateCondition = undefined;
+  if (dateFilter === "today") {
+    const today = new Date().toISOString().split("T")[0];
+    dateCondition = eq(invoices.invoiceDate, today);
+  } else if (dateFilter === "yesterday") {
+    const yest = new Date();
+    yest.setDate(yest.getDate() - 1);
+    dateCondition = eq(invoices.invoiceDate, yest.toISOString().split("T")[0]);
+  } else if (dateFilter === "custom" && start && end) {
+    dateCondition = and(
+      gte(invoices.invoiceDate, start),
+      lte(invoices.invoiceDate, end)
+    );
+  }
+
   const list = await db
     .select()
     .from(invoices)
-    .where(and(eq(invoices.storeId, storeId), eq(invoices.type, "sale")))
+    .where(
+      and(
+        eq(invoices.storeId, storeId),
+        eq(invoices.type, "sale"),
+        dateCondition,
+        customer !== "all"
+          ? customer === "walkin"
+            ? eq(invoices.partyId, null as any) // Null means walk-in
+            : eq(invoices.partyId, customer)
+          : undefined,
+        mode !== "all" ? eq(invoices.paymentMode, mode) : undefined
+      )
+    )
     .orderBy(desc(invoices.createdAt))
     .limit(100);
+
+  const customersList = await db.select({ id: parties.id, name: parties.name }).from(parties).where(and(eq(parties.storeId, storeId), eq(parties.type, "customer")));
 
   return (
     <div className="space-y-5">
@@ -25,6 +66,15 @@ export default async function InvoicesPage() {
         </div>
         <Link href="/dashboard/billing" className="rounded-xl bg-gradient-to-r from-orange-500 to-rose-500 px-5 py-2.5 text-sm font-semibold text-white shadow-md">+ New Invoice</Link>
       </div>
+
+      <InvoiceFilter
+        currentDateFilter={dateFilter}
+        currentStart={start}
+        currentEnd={end}
+        currentCustomer={customer}
+        currentMode={mode}
+        parties={customersList}
+      />
 
       <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
         <div className="overflow-x-auto">
@@ -42,9 +92,12 @@ export default async function InvoicesPage() {
             </thead>
             <tbody className="divide-y divide-slate-100">
               {list.map((i) => (
-                <tr key={i.id} className="hover:bg-slate-50">
-                  <td className="px-5 py-3 font-mono text-xs font-semibold text-slate-900">{i.invoiceNo}</td>
-                  <td className="px-5 py-3 text-slate-600">{formatDate(i.invoiceDate)}</td>
+                <tr key={i.id} className="hover:bg-slate-50 transition group relative cursor-pointer">
+                  <td className="px-5 py-3 relative">
+                    <Link href={`/dashboard/invoices/${i.id}`} className="absolute inset-0" aria-label={`View invoice ${i.invoiceNo}`}></Link>
+                    <span className="font-mono text-xs font-semibold text-slate-900 group-hover:underline pointer-events-none">{i.invoiceNo}</span>
+                  </td>
+                  <td className="px-5 py-3 text-slate-600 pointer-events-none">{formatDate(i.invoiceDate)}</td>
                   <td className="px-5 py-3 text-slate-800">{i.partyName}</td>
                   <td className="px-5 py-3">
                     <span className="rounded-md bg-slate-100 px-2 py-0.5 text-[11px] font-semibold uppercase text-slate-700">

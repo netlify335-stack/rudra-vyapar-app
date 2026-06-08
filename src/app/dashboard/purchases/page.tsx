@@ -1,20 +1,61 @@
 import { db } from "@/db";
-import { invoices } from "@/db/schema";
-import { and, desc, eq } from "drizzle-orm";
+import { invoices, parties } from "@/db/schema";
+import { and, desc, eq, gte, lte } from "drizzle-orm";
 import { getActiveStoreId } from "@/lib/session";
 import { formatINR, formatDate } from "@/lib/format";
 import Link from "next/link";
 import { FileText, Plus, Search } from "lucide-react";
+import { PurchaseFilter } from "./PurchaseFilter";
 
 export const dynamic = "force-dynamic";
 
-export default async function PurchasesPage() {
+export default async function PurchasesPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ [key: string]: string | string[] | undefined }>;
+}) {
   const storeId = (await getActiveStoreId())!;
+  const params = await searchParams;
+  const dateFilter = (params.dateFilter as string) || "all";
+  const start = (params.start as string) || "";
+  const end = (params.end as string) || "";
+  const supplier = (params.supplier as string) || "all";
+  const mode = (params.mode as string) || "all";
+
+  let dateCondition = undefined;
+  if (dateFilter === "today") {
+    const today = new Date().toISOString().split("T")[0];
+    dateCondition = eq(invoices.invoiceDate, today);
+  } else if (dateFilter === "yesterday") {
+    const yest = new Date();
+    yest.setDate(yest.getDate() - 1);
+    dateCondition = eq(invoices.invoiceDate, yest.toISOString().split("T")[0]);
+  } else if (dateFilter === "custom" && start && end) {
+    dateCondition = and(
+      gte(invoices.invoiceDate, start),
+      lte(invoices.invoiceDate, end)
+    );
+  }
+
   const purchases = await db
     .select()
     .from(invoices)
-    .where(and(eq(invoices.storeId, storeId), eq(invoices.type, "purchase")))
+    .where(
+      and(
+        eq(invoices.storeId, storeId),
+        eq(invoices.type, "purchase"),
+        dateCondition,
+        supplier !== "all"
+          ? supplier === "walkin"
+            ? eq(invoices.partyId, null as any) // Null means walk-in
+            : eq(invoices.partyId, supplier)
+          : undefined,
+        mode !== "all" ? eq(invoices.paymentMode, mode) : undefined
+      )
+    )
     .orderBy(desc(invoices.createdAt));
+
+  const suppliersList = await db.select({ id: parties.id, name: parties.name }).from(parties).where(and(eq(parties.storeId, storeId), eq(parties.type, "supplier")));
 
   return (
     <div className="space-y-6">
@@ -32,15 +73,16 @@ export default async function PurchasesPage() {
         </Link>
       </div>
 
+      <PurchaseFilter
+        currentDateFilter={dateFilter}
+        currentStart={start}
+        currentEnd={end}
+        currentSupplier={supplier}
+        currentMode={mode}
+        parties={suppliersList}
+      />
+
       <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
-        <div className="flex items-center gap-3 border-b border-slate-100 p-4">
-          <Search size={18} className="text-slate-400" />
-          <input
-            type="text"
-            placeholder="Search by supplier or bill no..."
-            className="flex-1 bg-transparent text-sm outline-none placeholder:text-slate-400"
-          />
-        </div>
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
@@ -54,11 +96,12 @@ export default async function PurchasesPage() {
             </thead>
             <tbody className="divide-y divide-slate-100">
               {purchases.map((r) => (
-                <tr key={r.id} className="transition hover:bg-slate-50">
+                <tr key={r.id} className="transition hover:bg-slate-50 group relative">
                   <td className="px-4 py-3">
-                    <Link href={`/dashboard/invoices/${r.id}`} className="font-mono text-xs font-semibold text-indigo-600 hover:underline">
+                    <Link href={`/dashboard/invoices/${r.id}`} className="absolute inset-0" aria-label={`View invoice ${r.invoiceNo}`}></Link>
+                    <span className="font-mono text-xs font-semibold text-indigo-600 group-hover:underline pointer-events-none">
                       {r.invoiceNo}
-                    </Link>
+                    </span>
                   </td>
                   <td className="px-4 py-3 text-slate-600">{formatDate(r.invoiceDate)}</td>
                   <td className="px-4 py-3">

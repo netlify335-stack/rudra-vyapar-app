@@ -1,5 +1,5 @@
 import { db } from "@/db";
-import { parties } from "@/db/schema";
+import { parties, khataEntries, invoices } from "@/db/schema";
 import { getActiveStoreId } from "@/lib/session";
 import { eq, and } from "drizzle-orm";
 
@@ -29,6 +29,10 @@ export async function DELETE(req: Request, { params }: { params: Promise<{ id: s
   if (!storeId) return Response.json({ ok: false, error: "No store" }, { status: 400 });
 
   const { id } = await params;
+
+  // Clear related entries
+  await db.delete(khataEntries).where(eq(khataEntries.partyId, id));
+  await db.update(invoices).set({ partyId: null as any }).where(eq(invoices.partyId, id));
 
   // Real delete
   await db

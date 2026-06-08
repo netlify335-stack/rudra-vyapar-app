@@ -25,7 +25,7 @@ export default async function InvoiceDetail({ params }: { params: Promise<{ id: 
     <div className="mx-auto max-w-4xl space-y-4">
       <div className="no-print flex flex-wrap items-center justify-between gap-3">
         <Link href="/dashboard/invoices" className="text-sm font-semibold text-slate-600 hover:text-slate-900">← Back to invoices</Link>
-        <ShareButtons invoiceNo={inv.invoiceNo} amount={Number(inv.totalAmount)} phone={inv.partyPhone} storeName={store.name} />
+        <ShareButtons invoiceNo={inv.invoiceNo} amount={Number(inv.totalAmount)} phone={inv.partyPhone} storeName={store.name} partyName={inv.partyName} paymentMode={inv.paymentMode} />
       </div>
 
       <div className="rounded-2xl border border-slate-200 bg-white p-8 shadow-sm print:border-0 print:shadow-none">
@@ -39,7 +39,7 @@ export default async function InvoiceDetail({ params }: { params: Promise<{ id: 
           </div>
           <div className="text-right">
             <div className="rounded-lg bg-gradient-to-r from-orange-500 to-rose-500 px-4 py-1 text-xs font-bold uppercase tracking-wider text-white">
-              Tax Invoice
+              {inv.type === "purchase" ? "Purchase Bill" : "Tax Invoice"}
             </div>
             <div className="mt-2 text-lg font-bold text-slate-900">{inv.invoiceNo}</div>
             <div className="text-xs text-slate-600">Date: {formatDate(inv.invoiceDate)}</div>
@@ -49,7 +49,7 @@ export default async function InvoiceDetail({ params }: { params: Promise<{ id: 
 
         <div className="mt-6 grid gap-6 md:grid-cols-2">
           <div>
-            <div className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Billed To</div>
+            <div className="text-[10px] font-bold uppercase tracking-wider text-slate-500">{inv.type === "purchase" ? "Supplier" : "Billed To"}</div>
             <div className="mt-1 text-base font-semibold text-slate-900">{inv.partyName}</div>
             {inv.partyPhone && <div className="text-xs text-slate-600">{inv.partyPhone}</div>}
             {inv.partyGstin && <div className="text-xs text-slate-600">GSTIN: {inv.partyGstin}</div>}
@@ -112,9 +112,11 @@ export default async function InvoiceDetail({ params }: { params: Promise<{ id: 
           )}
         </div>
 
-        <div className="mt-8 border-t border-dashed border-slate-200 pt-4 text-center text-[11px] text-slate-500">
-          Thank you for your business! · Goods once sold will not be taken back · E&OE
-        </div>
+        {inv.notes && (
+          <div className="mt-8 border-t border-dashed border-slate-200 pt-4 text-center text-xs font-medium text-slate-700">
+            {inv.notes}
+          </div>
+        )}
       </div>
     </div>
   );

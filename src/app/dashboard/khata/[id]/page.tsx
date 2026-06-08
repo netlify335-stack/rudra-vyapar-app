@@ -1,6 +1,6 @@
 import { db } from "@/db";
 import { parties, khataEntries, stores } from "@/db/schema";
-import { and, desc, eq } from "drizzle-orm";
+import { and, desc, eq, gte, lte } from "drizzle-orm";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { getActiveStoreId } from "@/lib/session";
@@ -9,15 +9,49 @@ import { KhataAdd } from "./KhataAdd";
 import { RemindButton } from "./RemindButton";
 import { PartyActions } from "./PartyActions";
 import { KhataEntryRow } from "./KhataEntryRow";
+import { KhataEntryFilter } from "./KhataEntryFilter";
 
 export const dynamic = "force-dynamic";
 
-export default async function KhataDetail({ params }: { params: Promise<{ id: string }> }) {
+export default async function KhataDetail({ params, searchParams }: { params: Promise<{ id: string }>, searchParams: Promise<{ [key: string]: string | string[] | undefined }> }) {
   const { id } = await params;
+  const sParams = await searchParams;
+  const dateFilter = (sParams.dateFilter as string) || "all";
+  const start = (sParams.start as string) || "";
+  const end = (sParams.end as string) || "";
+  const type = (sParams.type as string) || "all";
+
   const storeId = (await getActiveStoreId())!;
   const [party] = await db.select().from(parties).where(and(eq(parties.id, id), eq(parties.storeId, storeId))).limit(1);
   if (!party) notFound();
-  const entries = await db.select().from(khataEntries).where(eq(khataEntries.partyId, id)).orderBy(desc(khataEntries.entryDate), desc(khataEntries.createdAt));
+
+  let dateCondition = undefined;
+  if (dateFilter === "today") {
+    const today = new Date().toISOString().split("T")[0];
+    dateCondition = eq(khataEntries.entryDate, today);
+  } else if (dateFilter === "yesterday") {
+    const yest = new Date();
+    yest.setDate(yest.getDate() - 1);
+    dateCondition = eq(khataEntries.entryDate, yest.toISOString().split("T")[0]);
+  } else if (dateFilter === "custom" && start && end) {
+    dateCondition = and(
+      gte(khataEntries.entryDate, start),
+      lte(khataEntries.entryDate, end)
+    );
+  }
+
+  const entries = await db
+    .select()
+    .from(khataEntries)
+    .where(
+      and(
+        eq(khataEntries.partyId, id),
+        dateCondition,
+        type === "udhari" ? eq(khataEntries.type, "YOU_GAVE") : undefined,
+        type === "paid" ? eq(khataEntries.type, "YOU_GOT") : undefined
+      )
+    )
+    .orderBy(desc(khataEntries.entryDate), desc(khataEntries.createdAt));
   const [store] = await db.select().from(stores).where(eq(stores.id, storeId)).limit(1);
 
   const bal = Number(party.outstandingBalance);
@@ -53,6 +87,14 @@ export default async function KhataDetail({ params }: { params: Promise<{ id: st
       </div>
 
       <KhataAdd partyId={party.id} />
+
+      <KhataEntryFilter
+        partyId={party.id}
+        currentDateFilter={dateFilter}
+        currentStart={start}
+        currentEnd={end}
+        currentType={type}
+      />
 
       <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
         <div className="border-b border-slate-100 p-4">

@@ -120,7 +120,7 @@ export function POSClient({ products, customers, isPurchase = false, storeName }
     };
   }, [cart]);
 
-  async function saveInvoice(action: "print" | "whatsapp" | "sms", includePdf: boolean = false) {
+  async function saveInvoice(action: "print" | "whatsapp" | "sms" | "save", includePdf: boolean = false) {
     if (!cart.length) return;
     setSaving(true);
     try {
@@ -156,13 +156,20 @@ export function POSClient({ products, customers, isPurchase = false, storeName }
         setWalkinAddress("");
         
         const amount = totals.total;
+        const paymentText = paymentMode.charAt(0).toUpperCase() + paymentMode.slice(1);
         const msg = encodeURIComponent(
-          `Hi! Your invoice ${data.invoiceNo} for ${formatINR(amount)} from ${storeName} is ready. Thank you! 🙏`
+          `Hello ${partyName},\nYour invoice ${data.invoiceNo} for ${formatINR(amount)} from ${storeName} is ready.\nPayment Mode: ${paymentText}\nThank you! 🙏`
         );
         
         if (action === "print" || includePdf) {
-          const newTab = window.open(`/dashboard/invoices/${data.invoiceId}`, "_blank");
-          if (!newTab) router.push(`/dashboard/invoices/${data.invoiceId}`);
+          if (isPurchase) {
+            router.push(`/dashboard/purchases`);
+          } else {
+            const newTab = window.open(`/dashboard/invoices/${data.invoiceId}`, "_blank");
+            if (!newTab) router.push(`/dashboard/invoices/${data.invoiceId}`);
+          }
+        } else if (action === "save") {
+            router.push(isPurchase ? `/dashboard/purchases` : `/dashboard/invoices`);
         } else if (action === "whatsapp") {
           const waNum = partyPhone.replace(/[^0-9]/g, "").replace(/^91/, "");
           const waLink = waNum ? `https://wa.me/91${waNum}?text=${msg}` : `https://wa.me/?text=${msg}`;
@@ -174,7 +181,9 @@ export function POSClient({ products, customers, isPurchase = false, storeName }
           window.location.href = smsLink;
         }
 
-        router.refresh();
+        if (action !== "print" && action !== "save") {
+           router.refresh();
+        }
       } else {
         alert(data.error || "Failed to save");
       }
@@ -396,19 +405,25 @@ export function POSClient({ products, customers, isPurchase = false, storeName }
           />
 
           <div className="mt-3 flex flex-col gap-2">
-            <div className="flex items-center gap-2 px-1">
-               <input type="checkbox" id="includePdf" className="h-4 w-4 rounded border-slate-300 text-orange-500 focus:ring-orange-500" />
-               <label htmlFor="includePdf" className="text-xs font-semibold text-slate-700">Include PDF (Open Print Dialog)</label>
-            </div>
+            {!isPurchase && (
+              <div className="flex items-center gap-2 px-1">
+                 <input type="checkbox" id="includePdf" className="h-4 w-4 rounded border-slate-300 text-orange-500 focus:ring-orange-500" />
+                 <label htmlFor="includePdf" className="text-xs font-semibold text-slate-700">Include PDF (Open Print Dialog)</label>
+              </div>
+            )}
             <button
               onClick={() => {
-                const incPdf = (document.getElementById("includePdf") as HTMLInputElement)?.checked;
-                saveInvoice("print", incPdf);
+                if (isPurchase) {
+                  saveInvoice("save");
+                } else {
+                  const incPdf = (document.getElementById("includePdf") as HTMLInputElement)?.checked;
+                  saveInvoice("print", incPdf);
+                }
               }}
               disabled={saving || cart.length === 0 || (paymentMode === "credit" && customerId === "walkin")}
               className="w-full rounded-xl bg-slate-900 px-4 py-3 text-sm font-bold text-white shadow-md transition hover:scale-[1.01] disabled:cursor-not-allowed disabled:opacity-50"
             >
-              {saving ? "Saving..." : `Save & Print  ·  ${formatINR(totals.total)}`}
+              {saving ? "Saving..." : (isPurchase ? `Save Purchase · ${formatINR(totals.total)}` : `Save & Print  ·  ${formatINR(totals.total)}`)}
             </button>
             <div className="flex gap-2">
               <button

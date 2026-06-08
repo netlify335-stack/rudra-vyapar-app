@@ -1,15 +1,54 @@
 import { db } from "@/db";
 import { expenses } from "@/db/schema";
-import { desc, eq, sql } from "drizzle-orm";
 import { getActiveStoreId } from "@/lib/session";
 import { formatINR, formatDate } from "@/lib/format";
 import { AddExpenseForm } from "./AddExpenseForm";
+import { ExpenseFilter } from "./ExpenseFilter";
+import { and, desc, eq, sql, gte, lte } from "drizzle-orm";
 
 export const dynamic = "force-dynamic";
 
-export default async function ExpensesPage() {
+export default async function ExpensesPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ [key: string]: string | string[] | undefined }>;
+}) {
   const storeId = (await getActiveStoreId())!;
-  const list = await db.select().from(expenses).where(eq(expenses.storeId, storeId)).orderBy(desc(expenses.expenseDate));
+  const params = await searchParams;
+  const dateFilter = (params.dateFilter as string) || "all";
+  const start = (params.start as string) || "";
+  const end = (params.end as string) || "";
+  const category = (params.category as string) || "all";
+  const mode = (params.mode as string) || "all";
+
+  let dateCondition = undefined;
+  if (dateFilter === "today") {
+    const today = new Date().toISOString().split("T")[0];
+    dateCondition = eq(expenses.expenseDate, today);
+  } else if (dateFilter === "yesterday") {
+    const yest = new Date();
+    yest.setDate(yest.getDate() - 1);
+    dateCondition = eq(expenses.expenseDate, yest.toISOString().split("T")[0]);
+  } else if (dateFilter === "custom" && start && end) {
+    dateCondition = and(
+      gte(expenses.expenseDate, start),
+      lte(expenses.expenseDate, end)
+    );
+  }
+
+  const list = await db
+    .select()
+    .from(expenses)
+    .where(
+      and(
+        eq(expenses.storeId, storeId),
+        dateCondition,
+        category !== "all" ? eq(expenses.category, category) : undefined,
+        mode !== "all" ? eq(expenses.paymentMode, mode) : undefined
+      )
+    )
+    .orderBy(desc(expenses.expenseDate));
+
   const total = list.reduce((s, e) => s + Number(e.amount), 0);
 
   // by category
@@ -38,6 +77,14 @@ export default async function ExpensesPage() {
           ))}
         </div>
       )}
+
+      <ExpenseFilter
+        currentDateFilter={dateFilter}
+        currentStart={start}
+        currentEnd={end}
+        currentCategory={category}
+        currentMode={mode}
+      />
 
       <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
         <div className="border-b border-slate-100 p-4">

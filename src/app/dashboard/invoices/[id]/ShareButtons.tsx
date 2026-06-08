@@ -1,9 +1,11 @@
 "use client";
 import { formatINR } from "@/lib/format";
 
-export function ShareButtons({ invoiceNo, amount, phone, storeName }: { invoiceNo: string; amount: number; phone: string | null; storeName: string }) {
+export function ShareButtons({ invoiceNo, amount, phone, storeName, partyName, paymentMode }: { invoiceNo: string; amount: number; phone: string | null; storeName: string; partyName: string | null; paymentMode: string | null }) {
+  const paymentText = paymentMode ? paymentMode.charAt(0).toUpperCase() + paymentMode.slice(1) : 'Unknown';
+  const nameText = partyName || 'Customer';
   const msg = encodeURIComponent(
-    `Hi! Your invoice ${invoiceNo} for ${formatINR(amount)} from ${storeName} is ready. Thank you! 🙏`,
+    `Hello ${nameText},\nYour invoice ${invoiceNo} for ${formatINR(amount)} from ${storeName} is ready.\nPayment Mode: ${paymentText}\nThank you! 🙏`,
   );
   const waNum = (phone || "").replace(/[^0-9]/g, "").replace(/^91/, "");
   const wa = waNum ? `https://wa.me/91${waNum}?text=${msg}` : `https://wa.me/?text=${msg}`;
