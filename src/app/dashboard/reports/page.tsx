@@ -1,14 +1,23 @@
 import { db } from "@/db";
-import { invoices, invoiceItems, expenses } from "@/db/schema";
-import { and, eq, gte, sql, desc } from "drizzle-orm";
+import { invoices, invoiceItems, expenses, products } from "@/db/schema";
+import { and, eq, gte, lte, sql, desc } from "drizzle-orm";
 import { getActiveStoreId } from "@/lib/session";
 import { formatINR, formatNumber } from "@/lib/format";
 import { LineChart, BarChart, DonutChart } from "@/components/Charts";
+import { ReportFilter } from "./ReportFilter";
 
 export const dynamic = "force-dynamic";
 
-export default async function ReportsPage() {
+export default async function ReportsPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ [key: string]: string | string[] | undefined }>;
+}) {
   const storeId = (await getActiveStoreId())!;
+  const params = await searchParams;
+  const dateFilter = (params.dateFilter as string) || "all";
+  const start = (params.start as string) || "";
+  const end = (params.end as string) || "";
 
   // Indian FY: April 1 → March 31
   const now = new Date();
@@ -16,8 +25,26 @@ export default async function ReportsPage() {
   const fyStart = `${fyStartYear}-04-01`;
   const fyEnd = `${fyStartYear + 1}-03-31`;
 
-  const monthStart = new Date(); monthStart.setDate(1);
-  const monthStartStr = monthStart.toISOString().slice(0, 10);
+  let dateCondition = gte(invoices.invoiceDate, fyStart); // Default to FY
+  let expDateCondition = gte(expenses.expenseDate, fyStart);
+
+  if (dateFilter === "this_month") {
+    const mStart = new Date(); mStart.setDate(1);
+    dateCondition = gte(invoices.invoiceDate, mStart.toISOString().slice(0, 10));
+    expDateCondition = gte(expenses.expenseDate, mStart.toISOString().slice(0, 10));
+  } else if (dateFilter === "today") {
+    const today = new Date().toISOString().slice(0, 10);
+    dateCondition = eq(invoices.invoiceDate, today);
+    expDateCondition = eq(expenses.expenseDate, today);
+  } else if (dateFilter === "yesterday") {
+    const yest = new Date(); yest.setDate(yest.getDate() - 1);
+    const yestStr = yest.toISOString().slice(0, 10);
+    dateCondition = eq(invoices.invoiceDate, yestStr);
+    expDateCondition = eq(expenses.expenseDate, yestStr);
+  } else if (dateFilter === "custom" && start && end) {
+    dateCondition = and(gte(invoices.invoiceDate, start), lte(invoices.invoiceDate, end)) as any;
+    expDateCondition = and(gte(expenses.expenseDate, start), lte(expenses.expenseDate, end)) as any;
+  }
 
   // Monthly sales (last 6 months)
   const monthly = await db
@@ -28,11 +55,11 @@ export default async function ReportsPage() {
       tax: sql<string>`coalesce(sum(${invoices.cgstAmount} + ${invoices.sgstAmount} + ${invoices.igstAmount}),0)`,
     })
     .from(invoices)
-    .where(and(eq(invoices.storeId, storeId), eq(invoices.type, "sale")))
+    .where(and(eq(invoices.storeId, storeId), eq(invoices.type, "sale"), dateCondition))
     .groupBy(sql`to_char(${invoices.invoiceDate}, 'YYYY-MM')`)
     .orderBy(sql`to_char(${invoices.invoiceDate}, 'YYYY-MM')`);
 
-  // GST summary (this month)
+  // GST summary (Filtered)
   const gstSummary = await db
     .select({
       rate: invoiceItems.gstRate,
@@ -41,7 +68,7 @@ export default async function ReportsPage() {
     })
     .from(invoiceItems)
     .innerJoin(invoices, eq(invoices.id, invoiceItems.invoiceId))
-    .where(and(eq(invoices.storeId, storeId), eq(invoices.type, "sale"), gte(invoices.invoiceDate, monthStartStr)))
+    .where(and(eq(invoices.storeId, storeId), eq(invoices.type, "sale"), dateCondition))
     .groupBy(invoiceItems.gstRate)
     .orderBy(invoiceItems.gstRate);
 
@@ -49,7 +76,7 @@ export default async function ReportsPage() {
   const salesAgg = await db.select({
     rev: sql<string>`coalesce(sum(${invoices.totalAmount}),0)`,
     taxable: sql<string>`coalesce(sum(${invoices.taxableAmount}),0)`,
-  }).from(invoices).where(and(eq(invoices.storeId, storeId), eq(invoices.type, "sale"), gte(invoices.invoiceDate, fyStart)));
+  }).from(invoices).where(and(eq(invoices.storeId, storeId), eq(invoices.type, "sale"), dateCondition));
 
   // Approx COGS: sum of (sold qty × purchase price). We do a quick join.
   const cogsAgg = await db
@@ -57,10 +84,10 @@ export default async function ReportsPage() {
     .from(invoiceItems)
     .innerJoin(invoices, eq(invoices.id, invoiceItems.invoiceId))
     .innerJoin(sql`products p`, sql`p.id = ${invoiceItems.productId}`)
-    .where(and(eq(invoices.storeId, storeId), eq(invoices.type, "sale"), gte(invoices.invoiceDate, fyStart)));
+    .where(and(eq(invoices.storeId, storeId), eq(invoices.type, "sale"), dateCondition));
 
   const expAgg = await db.select({ total: sql<string>`coalesce(sum(${expenses.amount}),0)` })
-    .from(expenses).where(and(eq(expenses.storeId, storeId), gte(expenses.expenseDate, fyStart)));
+    .from(expenses).where(and(eq(expenses.storeId, storeId), expDateCondition));
 
   const rev = Number(salesAgg[0]?.rev ?? 0);
   const cogs = Number(cogsAgg[0]?.cogs ?? 0);
@@ -75,10 +102,35 @@ export default async function ReportsPage() {
       total: sql<string>`coalesce(sum(${invoices.totalAmount}),0)`,
     })
     .from(invoices)
-    .where(and(eq(invoices.storeId, storeId), eq(invoices.type, "sale"), gte(invoices.invoiceDate, fyStart)))
+    .where(and(eq(invoices.storeId, storeId), eq(invoices.type, "sale"), dateCondition))
     .groupBy(invoices.partyName)
     .orderBy(desc(sql`sum(${invoices.totalAmount})`))
     .limit(5);
+
+  // Top suppliers (Purchases)
+  const topSuppliers = await db
+    .select({
+      name: invoices.partyName,
+      total: sql<string>`coalesce(sum(${invoices.totalAmount}),0)`,
+    })
+    .from(invoices)
+    .where(and(eq(invoices.storeId, storeId), eq(invoices.type, "purchase"), dateCondition))
+    .groupBy(invoices.partyName)
+    .orderBy(desc(sql`sum(${invoices.totalAmount})`))
+    .limit(5);
+
+  // Category Performance
+  const catPerf = await db
+    .select({
+      category: products.category,
+      total: sql<string>`coalesce(sum(${invoiceItems.totalAmount}),0)`,
+    })
+    .from(invoiceItems)
+    .innerJoin(invoices, eq(invoices.id, invoiceItems.invoiceId))
+    .innerJoin(products, eq(products.id, invoiceItems.productId))
+    .where(and(eq(invoices.storeId, storeId), eq(invoices.type, "sale"), dateCondition))
+    .groupBy(products.category)
+    .orderBy(desc(sql`sum(${invoiceItems.totalAmount})`));
 
   const trendData = monthly.map((m) => ({
     label: new Date(`${m.m}-01`).toLocaleDateString("en-IN", { month: "short" }),
@@ -88,13 +140,15 @@ export default async function ReportsPage() {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-2xl font-bold text-slate-950">Reports & GST 📊</h1>
-        <p className="text-sm text-slate-500">FY {fyStartYear}-{(fyStartYear + 1).toString().slice(2)} · {fyStart} to {fyEnd}</p>
+        <h1 className="text-2xl font-bold text-slate-950">Reports & Dashboards 📊</h1>
+        <p className="text-sm text-slate-500">Analyze Sales, Purchases, Categories and GST</p>
       </div>
+
+      <ReportFilter currentFilter={dateFilter} currentStart={start} currentEnd={end} />
 
       {/* P&L cards */}
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <PLCard label="Revenue (FY)" value={formatINR(rev)} tint="from-emerald-500 to-teal-600" icon="💰" />
+        <PLCard label="Revenue" value={formatINR(rev)} tint="from-emerald-500 to-teal-600" icon="💰" />
         <PLCard label="COGS" value={formatINR(cogs)} tint="from-amber-500 to-orange-600" icon="📦" />
         <PLCard label="Operating Expenses" value={formatINR(exp)} tint="from-rose-500 to-pink-600" icon="💸" />
         <PLCard label="Net Profit" value={formatINR(netProfit)} tint={netProfit >= 0 ? "from-indigo-500 to-purple-600" : "from-rose-500 to-rose-700"} icon="📈" />
@@ -102,15 +156,38 @@ export default async function ReportsPage() {
 
       <div className="grid gap-6 lg:grid-cols-3">
         <div className="lg:col-span-2 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-          <h3 className="mb-3 text-sm font-bold">Monthly sales trend</h3>
+          <h3 className="mb-3 text-sm font-bold">Monthly Sales Trend</h3>
           <LineChart data={trendData} />
         </div>
         <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-          <h3 className="mb-3 text-sm font-bold">Top customers (FY)</h3>
+          <h3 className="mb-3 text-sm font-bold">Category Performance</h3>
+          {catPerf.length > 0 ? (
+            <DonutChart segments={catPerf.map((c, i) => ({ 
+               label: c.category || "Uncategorized", 
+               value: Number(c.total),
+               color: ["#F97316", "#10B981", "#6366F1", "#EC4899", "#8B5CF6"][i % 5]
+            }))} />
+          ) : (
+            <div className="grid h-40 place-items-center text-sm text-slate-400">No data</div>
+          )}
+        </div>
+      </div>
+
+      <div className="grid gap-6 lg:grid-cols-2">
+        <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+          <h3 className="mb-3 text-sm font-bold">Top Customers (Sales)</h3>
           {topCustomers.length > 0 ? (
             <BarChart data={topCustomers.map((c) => ({ label: c.name || "—", value: Number(c.total) }))} />
           ) : (
             <div className="grid h-40 place-items-center text-sm text-slate-400">No data</div>
+          )}
+        </div>
+        <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+          <h3 className="mb-3 text-sm font-bold">Top Suppliers (Purchases)</h3>
+          {topSuppliers.length > 0 ? (
+            <BarChart data={topSuppliers.map((c) => ({ label: c.name || "—", value: Number(c.total) }))} />
+          ) : (
+            <div className="grid h-40 place-items-center text-sm text-slate-400">No purchases found</div>
           )}
         </div>
       </div>
@@ -118,7 +195,7 @@ export default async function ReportsPage() {
       {/* GSTR-1 / 3B style summary */}
       <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
         <div className="border-b border-slate-100 p-4">
-          <h3 className="text-sm font-bold text-slate-900">GST Summary — This Month (GSTR-1 / 3B preview)</h3>
+          <h3 className="text-sm font-bold text-slate-900">GST Summary (GSTR-1 / 3B preview)</h3>
           <p className="text-[11px] text-slate-500">Output tax payable on outward supplies</p>
         </div>
         <table className="w-full text-sm">
