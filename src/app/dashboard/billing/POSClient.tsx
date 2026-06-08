@@ -36,7 +36,10 @@ export function POSClient({ products, customers, isPurchase = false, storeName }
   const [walkinName, setWalkinName] = useState("");
   const [walkinPhone, setWalkinPhone] = useState("");
   const [walkinAddress, setWalkinAddress] = useState("");
-  const [paymentMode, setPaymentMode] = useState<"cash" | "upi" | "card" | "credit">("cash");
+  const [paymentMode, setPaymentMode] = useState<"cash" | "upi" | "card" | "credit" | "partial">("cash");
+  const [splitMode1, setSplitMode1] = useState<"cash" | "upi" | "card" | "credit">("cash");
+  const [splitMode2, setSplitMode2] = useState<"cash" | "upi" | "card" | "credit">("upi");
+  const [splitAmount1, setSplitAmount1] = useState<string>("");
   const [notes, setNotes] = useState("");
   const [saving, setSaving] = useState(false);
   const [savedInvoiceNo, setSavedInvoiceNo] = useState<string | null>(null);
@@ -132,6 +135,9 @@ export function POSClient({ products, customers, isPurchase = false, storeName }
         ? walkinPhone.trim()
         : customers.find((c) => c.id === customerId)?.phone ?? "";
 
+      const finalSplitAmt1 = Number(splitAmount1) || 0;
+      const finalSplitAmt2 = totals.total - finalSplitAmt1;
+
       const res = await fetch("/api/invoices", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -142,6 +148,10 @@ export function POSClient({ products, customers, isPurchase = false, storeName }
           partyPhone,
           partyAddress: customerId === "walkin" ? walkinAddress.trim() : (customers.find((c) => c.id === customerId)?.address ?? ""),
           paymentMode,
+          splitPaymentMode1: paymentMode === "partial" ? splitMode1 : undefined,
+          splitAmount1: paymentMode === "partial" ? finalSplitAmt1 : undefined,
+          splitPaymentMode2: paymentMode === "partial" ? splitMode2 : undefined,
+          splitAmount2: paymentMode === "partial" ? finalSplitAmt2 : undefined,
           notes,
           items: cart,
         }),
@@ -372,17 +382,18 @@ export function POSClient({ products, customers, isPurchase = false, storeName }
 
         <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
           <h3 className="mb-3 text-sm font-bold">Payment Mode</h3>
-          <div className="grid grid-cols-4 gap-2">
+          <div className="grid grid-cols-5 gap-2">
             {([
               { v: "cash", l: "Cash", e: "💵" },
               { v: "upi", l: "UPI", e: "📱" },
               { v: "card", l: "Card", e: "💳" },
               { v: "credit", l: "Udhaar", e: "📒" },
+              { v: "partial", l: "Partial", e: "✂️" },
             ] as const).map((m) => (
               <button
                 key={m.v}
                 onClick={() => setPaymentMode(m.v)}
-                className={`flex flex-col items-center gap-1 rounded-xl border px-2 py-2.5 text-xs font-semibold transition ${
+                className={`flex flex-col items-center gap-1 rounded-xl border px-1 py-2.5 text-[11px] font-semibold transition ${
                   paymentMode === m.v
                     ? "border-orange-400 bg-orange-50 text-orange-700 shadow-sm"
                     : "border-slate-200 bg-white text-slate-600 hover:border-slate-300"
@@ -395,6 +406,53 @@ export function POSClient({ products, customers, isPurchase = false, storeName }
           </div>
           {paymentMode === "credit" && customerId === "walkin" && (
             <p className="mt-2 text-[11px] text-rose-600">⚠ Select a customer for udhaar / credit sale.</p>
+          )}
+
+          {paymentMode === "partial" && (
+            <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50 p-3 space-y-3">
+              <div className="flex gap-2">
+                <select 
+                  value={splitMode1}
+                  onChange={(e) => {
+                    const newM1 = e.target.value as any;
+                    setSplitMode1(newM1);
+                    if (splitMode2 === newM1) {
+                      setSplitMode2(["cash", "upi", "card", "credit"].find(m => m !== newM1) as any);
+                    }
+                  }}
+                  className="flex-1 rounded-lg border border-slate-300 px-2 py-1.5 text-sm outline-none"
+                >
+                  <option value="cash">Cash</option>
+                  <option value="upi">UPI</option>
+                  <option value="card">Card</option>
+                  <option value="credit">Udhaar</option>
+                </select>
+                <input 
+                  type="number"
+                  placeholder="Amount 1"
+                  value={splitAmount1}
+                  onChange={(e) => setSplitAmount1(e.target.value)}
+                  className="w-24 rounded-lg border border-slate-300 px-2 py-1.5 text-sm outline-none"
+                />
+              </div>
+              <div className="flex gap-2">
+                <select 
+                  value={splitMode2}
+                  onChange={(e) => setSplitMode2(e.target.value as any)}
+                  className="flex-1 rounded-lg border border-slate-300 px-2 py-1.5 text-sm outline-none"
+                >
+                  {["cash", "upi", "card", "credit"].filter(m => m !== splitMode1).map(m => (
+                    <option key={m} value={m}>{m.charAt(0).toUpperCase() + m.slice(1)}</option>
+                  ))}
+                </select>
+                <div className="w-24 rounded-lg border border-slate-200 bg-slate-100 px-2 py-1.5 text-sm text-slate-500 flex items-center">
+                  {formatINR(totals.total - (Number(splitAmount1) || 0))}
+                </div>
+              </div>
+              {(splitMode1 === "credit" || splitMode2 === "credit") && customerId === "walkin" && (
+                <p className="text-[10px] text-rose-600">⚠ Udhaar split requires selecting a customer.</p>
+              )}
+            </div>
           )}
 
           <input
@@ -420,7 +478,7 @@ export function POSClient({ products, customers, isPurchase = false, storeName }
                   saveInvoice("print", incPdf);
                 }
               }}
-              disabled={saving || cart.length === 0 || (paymentMode === "credit" && customerId === "walkin")}
+              disabled={saving || cart.length === 0 || ((paymentMode === "credit" || (paymentMode === "partial" && (splitMode1 === "credit" || splitMode2 === "credit"))) && customerId === "walkin")}
               className="w-full rounded-xl bg-slate-900 px-4 py-3 text-sm font-bold text-white shadow-md transition hover:scale-[1.01] disabled:cursor-not-allowed disabled:opacity-50"
             >
               {saving ? "Saving..." : (isPurchase ? `Save Purchase · ${formatINR(totals.total)}` : `Save & Print  ·  ${formatINR(totals.total)}`)}
@@ -431,7 +489,7 @@ export function POSClient({ products, customers, isPurchase = false, storeName }
                   const incPdf = (document.getElementById("includePdf") as HTMLInputElement)?.checked;
                   saveInvoice("whatsapp", incPdf);
                 }}
-                disabled={saving || cart.length === 0 || (paymentMode === "credit" && customerId === "walkin")}
+                disabled={saving || cart.length === 0 || ((paymentMode === "credit" || (paymentMode === "partial" && (splitMode1 === "credit" || splitMode2 === "credit"))) && customerId === "walkin")}
                 className="flex-1 rounded-xl bg-gradient-to-r from-emerald-500 to-emerald-600 px-2 py-2.5 text-xs font-bold text-white shadow-md transition hover:scale-[1.02] disabled:cursor-not-allowed disabled:opacity-50"
               >
                 📱 Save & WhatsApp
@@ -441,7 +499,7 @@ export function POSClient({ products, customers, isPurchase = false, storeName }
                   const incPdf = (document.getElementById("includePdf") as HTMLInputElement)?.checked;
                   saveInvoice("sms", incPdf);
                 }}
-                disabled={saving || cart.length === 0 || (paymentMode === "credit" && customerId === "walkin")}
+                disabled={saving || cart.length === 0 || ((paymentMode === "credit" || (paymentMode === "partial" && (splitMode1 === "credit" || splitMode2 === "credit"))) && customerId === "walkin")}
                 className="flex-1 rounded-xl bg-gradient-to-r from-blue-500 to-indigo-500 px-2 py-2.5 text-xs font-bold text-white shadow-md transition hover:scale-[1.02] disabled:cursor-not-allowed disabled:opacity-50"
               >
                 💬 Save & SMS

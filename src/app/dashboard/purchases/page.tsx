@@ -51,13 +51,22 @@ export default async function PurchasesPage({
             ? isNull(invoices.partyId) // Null means walk-in
             : eq(invoices.partyId, supplier)
           : undefined,
-        mode !== "all" ? eq(invoices.paymentMode, mode) : undefined,
+        mode !== "all" 
+          ? or(eq(invoices.paymentMode, mode), eq(invoices.splitPaymentMode1, mode), eq(invoices.splitPaymentMode2, mode)) 
+          : undefined,
         qStr ? or(ilike(invoices.invoiceNo, `%${qStr}%`), ilike(invoices.partyName, `%${qStr}%`)) : undefined
       )
     )
     .orderBy(desc(invoices.createdAt));
 
   const suppliersList = await db.select({ id: parties.id, name: parties.name }).from(parties).where(and(eq(parties.storeId, storeId), eq(parties.type, "supplier")));
+
+  let sumTotal = 0, sumPaid = 0, sumDue = 0;
+  purchases.forEach(r => {
+    sumTotal += Number(r.totalAmount) || 0;
+    sumPaid += Number(r.paidAmount) || 0;
+    sumDue += Number(r.balanceDue) || 0;
+  });
 
   return (
     <div className="space-y-6">
@@ -73,6 +82,21 @@ export default async function PurchasesPage({
           <Plus size={18} />
           New Purchase
         </Link>
+      </div>
+
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+        <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+          <div className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Total Amount</div>
+          <div className="mt-1 text-2xl font-bold text-slate-900">{formatINR(sumTotal)}</div>
+        </div>
+        <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4 shadow-sm">
+          <div className="text-[10px] font-bold text-emerald-700 uppercase tracking-wider">Paid Amount</div>
+          <div className="mt-1 text-2xl font-bold text-emerald-900">{formatINR(sumPaid)}</div>
+        </div>
+        <div className="rounded-2xl border border-rose-200 bg-rose-50 p-4 shadow-sm">
+          <div className="text-[10px] font-bold text-rose-700 uppercase tracking-wider">Due Amount</div>
+          <div className="mt-1 text-2xl font-bold text-rose-900">{formatINR(sumDue)}</div>
+        </div>
       </div>
 
       <PurchaseFilter
@@ -93,6 +117,7 @@ export default async function PurchasesPage({
                 <th className="px-4 py-3 font-semibold">Bill No</th>
                 <th className="px-4 py-3 font-semibold">Date</th>
                 <th className="px-4 py-3 font-semibold">Supplier</th>
+                <th className="px-4 py-3 font-semibold">Payment</th>
                 <th className="px-4 py-3 text-right font-semibold">Total</th>
                 <th className="px-4 py-3 text-right font-semibold">Status</th>
               </tr>
@@ -109,6 +134,13 @@ export default async function PurchasesPage({
                   <td className="px-4 py-3 text-slate-600">{formatDate(r.invoiceDate)}</td>
                   <td className="px-4 py-3">
                     <div className="font-semibold text-slate-900">{r.partyName || "Cash Supplier"}</div>
+                  </td>
+                  <td className="px-4 py-3">
+                    <div className="rounded-md bg-slate-100 px-2 py-1 inline-block text-[10px] font-semibold uppercase text-slate-700 whitespace-nowrap">
+                      {r.paymentMode === 'partial' 
+                        ? `Partial: ${r.splitPaymentMode1} (${formatINR(Number(r.splitAmount1))}) + ${r.splitPaymentMode2} (${formatINR(Number(r.splitAmount2))})` 
+                        : r.paymentMode}
+                    </div>
                   </td>
                   <td className="px-4 py-3 text-right font-bold text-slate-900">{formatINR(r.totalAmount)}</td>
                   <td className="px-4 py-3 text-right">

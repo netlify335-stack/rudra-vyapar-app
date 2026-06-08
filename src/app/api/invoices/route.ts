@@ -28,7 +28,11 @@ export async function POST(req: Request) {
       partyPhone?: string;
       partyGstin?: string;
       partyAddress?: string;
-      paymentMode?: "cash" | "upi" | "card" | "credit" | "bank";
+      paymentMode?: "cash" | "upi" | "card" | "credit" | "bank" | "partial";
+      splitPaymentMode1?: string;
+      splitAmount1?: number;
+      splitPaymentMode2?: string;
+      splitAmount2?: number;
       notes?: string;
       items: ItemBody[];
     };
@@ -54,8 +58,34 @@ export async function POST(req: Request) {
     await db.execute(sql`UPDATE stores SET invoice_counter = invoice_counter + 1 WHERE id = ${storeId}`);
 
     const paymentMode = body.paymentMode ?? "cash";
-    const paid = paymentMode === "credit" ? 0 : totals.totalAmount;
-    const balance = round2(totals.totalAmount - paid);
+    let paid = 0;
+    let balance = 0;
+    let creditAmount = 0;
+
+    if (paymentMode === "credit") {
+      paid = 0;
+      balance = totals.totalAmount;
+      creditAmount = totals.totalAmount;
+    } else if (paymentMode === "partial") {
+      const sM1 = body.splitPaymentMode1;
+      const sA1 = body.splitAmount1 || 0;
+      const sM2 = body.splitPaymentMode2;
+      const sA2 = body.splitAmount2 || 0;
+
+      if (sM1 === "credit") creditAmount += sA1;
+      else paid += sA1;
+
+      if (sM2 === "credit") creditAmount += sA2;
+      else paid += sA2;
+
+      balance = creditAmount;
+    } else {
+      paid = totals.totalAmount;
+      balance = 0;
+    }
+
+    paid = round2(paid);
+    balance = round2(balance);
 
     const [inv] = await db
       .insert(invoices)
@@ -81,6 +111,10 @@ export async function POST(req: Request) {
         paidAmount: String(paid),
         balanceDue: String(balance),
         paymentMode,
+        splitPaymentMode1: body.splitPaymentMode1 ?? null,
+        splitAmount1: body.splitAmount1 !== undefined ? String(body.splitAmount1) : null,
+        splitPaymentMode2: body.splitPaymentMode2 ?? null,
+        splitAmount2: body.splitAmount2 !== undefined ? String(body.splitAmount2) : null,
         notes: body.notes,
       })
       .returning();
@@ -120,15 +154,16 @@ export async function POST(req: Request) {
     }
 
     // Khata + party balance update on credit
-    if (paymentMode === "credit" && body.partyId) {
+    if (creditAmount > 0 && body.partyId) {
       const isSale = type === "sale";
+      const paymentNoteStr = paymentMode === "partial" ? " (Partial Udhaar)" : "";
       
       await db.insert(khataEntries).values({
         storeId,
         partyId: body.partyId,
         type: isSale ? "credit" : "credit", // For both, we are recording credit given/taken
-        amount: String(totals.totalAmount),
-        notes: isSale ? `Goods sold — ${invoiceNo}` : `Goods purchased — ${invoiceNo}`,
+        amount: String(creditAmount),
+        notes: isSale ? `Goods sold — ${invoiceNo}${paymentNoteStr}` : `Goods purchased — ${invoiceNo}${paymentNoteStr}`,
         entryDate: new Date().toISOString().slice(0, 10),
         invoiceId: inv.id,
       });
@@ -137,13 +172,13 @@ export async function POST(req: Request) {
         // Customer owes us money (outstandingBalance increases positively)
         await db
           .update(parties)
-          .set({ outstandingBalance: sql`${parties.outstandingBalance} + ${totals.totalAmount}` })
+          .set({ outstandingBalance: sql`${parties.outstandingBalance} + ${creditAmount}` })
           .where(eq(parties.id, body.partyId));
       } else {
         // We owe Supplier money (outstandingBalance decreases negatively)
         await db
           .update(parties)
-          .set({ outstandingBalance: sql`${parties.outstandingBalance} - ${totals.totalAmount}` })
+          .set({ outstandingBalance: sql`${parties.outstandingBalance} - ${creditAmount}` })
           .where(eq(parties.id, body.partyId));
       }
     }

@@ -43,7 +43,11 @@ export default async function InvoiceDetail({ params }: { params: Promise<{ id: 
             </div>
             <div className="mt-2 text-lg font-bold text-slate-900">{inv.invoiceNo}</div>
             <div className="text-xs text-slate-600">Date: {formatDate(inv.invoiceDate)}</div>
-            <div className="text-xs text-slate-600">Payment: {inv.paymentMode?.toUpperCase()}</div>
+            <div className="text-xs text-slate-600">
+              Payment: {inv.paymentMode === "partial" 
+                ? `Partial (${inv.splitPaymentMode1?.toUpperCase()} ${formatINR(Number(inv.splitAmount1))} + ${inv.splitPaymentMode2?.toUpperCase()} ${formatINR(Number(inv.splitAmount2))})`
+                : inv.paymentMode?.toUpperCase()}
+            </div>
           </div>
         </div>
 
