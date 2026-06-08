@@ -196,7 +196,7 @@ export function POSClient({ products, customers, isPurchase = false, storeName }
         if (action === "save") {
             // Just refresh data
             router.refresh();
-        } else if (action !== "print" && action !== "save") {
+        } else if (action === "whatsapp" || action === "sms") {
            router.refresh();
         }
       } else {
