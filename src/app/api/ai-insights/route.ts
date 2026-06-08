@@ -1,139 +1,107 @@
-import { NextResponse } from "next/server";
-import { getActiveStoreId } from "@/lib/session";
 import { db } from "@/db";
-import { products, batches } from "@/db/schema";
-import { and, eq, lte, gt, sql } from "drizzle-orm";
+import { products, parties, batches } from "@/db/schema";
+import { and, eq, lte } from "drizzle-orm";
+import { getActiveStoreId } from "@/lib/session";
 
-export const maxDuration = 30;
+export const dynamic = "force-dynamic";
 
-const GEMINI_API_KEY = process.env.GEMINI_API_KEY || process.env.GOOGLE_GENERATIVE_AI_API_KEY || "";
-const MODEL = "gemini-3.5-flash";
-const FALLBACK_MODEL = "gemini-2.5-flash-lite";
-
-export async function POST(req: Request) {
+export async function GET() {
   try {
     const storeId = await getActiveStoreId();
-    if (!storeId) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    if (!storeId) return Response.json({ ok: false, error: "No store" }, { status: 400 });
+
+    // 1. Low stock
+    const lowStockProds = await db
+      .select()
+      .from(products)
+      .where(and(eq(products.storeId, storeId), eq(products.isActive, true)))
+      .execute();
+      
+    const actualLowStock = lowStockProds.filter(p => Number(p.currentStock) <= Number(p.minStockLevel));
+
+    // 2. Len-den (Parties)
+    const allParties = await db.select().from(parties).where(eq(parties.storeId, storeId));
+    let lenaHai: string[] = [];
+    let denaHai: string[] = [];
+    
+    for (const p of allParties) {
+      const bal = Number(p.outstandingBalance);
+      if (bal > 0) {
+        lenaHai.push(`${p.name} se ₹${bal} lena hai`);
+      } else if (bal < 0) {
+        denaHai.push(`${p.name} ko ₹${Math.abs(bal)} dena hai`);
+      }
     }
 
-    // 1. Fetch Low Stock Data
-    const lowStock = await db
-      .select({
-        name: products.name,
-        currentStock: products.currentStock,
-        minStockLevel: products.minStockLevel,
-        unit: products.unit,
-      })
-      .from(products)
-      .where(and(eq(products.storeId, storeId), sql`${products.currentStock} <= ${products.minStockLevel}`))
-      .limit(10);
+    // 3. Expiring Batches
+    const today = new Date();
+    today.setMonth(today.getMonth() + 2); // next 2 months
+    const dateStr = today.toISOString().split("T")[0];
 
-    // 2. Fetch Expiring Soon Data (Next 60 days)
-    const in60 = new Date();
-    in60.setDate(in60.getDate() + 60);
-    
     const expiring = await db
-      .select({
-        productName: products.name,
-        batchNo: batches.batchNo,
-        quantity: batches.quantity,
-        expiryDate: batches.expiryDate,
+      .select({ 
+         batchNo: batches.batchNo, 
+         expiry: batches.expiryDate, 
+         qty: batches.quantity 
       })
       .from(batches)
-      .innerJoin(products, eq(products.id, batches.productId))
-      .where(
-        and(
-          eq(batches.storeId, storeId),
-          gt(batches.quantity, "0"),
-          lte(batches.expiryDate, in60.toISOString().slice(0, 10))
-        )
-      )
-      .orderBy(batches.expiryDate)
-      .limit(10);
+      .where(and(eq(batches.storeId, storeId), lte(batches.expiryDate, dateStr)))
+      .execute();
 
-    // 3. Construct Prompt for Gemini
-    if (lowStock.length === 0 && expiring.length === 0) {
-      return NextResponse.json({
-        insights: ["Stock bilkul sahi hai aur koi bhi dawai jaldi expire nahi ho rahi hai. Great job!"]
+    // Generate Hinglish Markdown
+    let md = `Namaste! 🙏 Yahan aapke business ka aaj ka haal hai:\n\n`;
+
+    // Stock Status
+    md += `### 📉 Low Stock Alert\n`;
+    if (actualLowStock.length > 0) {
+      md += `Dhyan dein, in items ka stock khatam hone wala hai ya ho gaya hai:\n`;
+      actualLowStock.slice(0, 10).forEach(p => {
+        md += `- **${p.name}**: Sirf ${p.currentStock} bache hain! (Minimum: ${p.minStockLevel})\n`;
       });
+      if (actualLowStock.length > 10) md += `- *...aur ${actualLowStock.length - 10} items.*\n`;
+      md += `> **Advice:** Inhe jaldi order kar lein taaki sales miss na ho!\n\n`;
+    } else {
+      md += `Sabhi items ka stock badhiya hai! Koi low stock nahi hai. 🎉\n\n`;
     }
 
-    const systemPrompt = `You are a smart business assistant for an Indian Kirana/Pharmacy store.
-You will be provided with a list of low stock items and items expiring soon.
-Generate 2 to 4 very short, highly actionable, and encouraging business recommendations in conversational Hinglish.
-Example: "Dolo-650 ka stock khatam hone wala hai, aaj hi distributor se order le lo."
-Example: "Amul Butter agle mahine expire hoga, ispe Buy 1 Get 1 lagakar nikal do."
-Return ONLY a valid JSON array of strings containing the recommendations, without any markdown formatting or extra text.`;
-
-    const userPrompt = `Low Stock Items:\n${JSON.stringify(lowStock, null, 2)}\n\nExpiring Soon:\n${JSON.stringify(expiring, null, 2)}`;
-
-    // 4. Call Gemini API directly via REST to avoid SDK issues
-    let response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent?key=${GEMINI_API_KEY}`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        system_instruction: {
-          parts: [{ text: systemPrompt }]
-        },
-        contents: [
-          { role: "user", parts: [{ text: userPrompt }] }
-        ],
-        generationConfig: {
-          temperature: 0.7,
-          responseMimeType: "application/json"
-        }
-      })
-    });
-
-    if (response.status === 429) {
-      console.warn("Primary model rate limited, falling back to gemini-2.5-flash-lite");
-      response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${FALLBACK_MODEL}:generateContent?key=${GEMINI_API_KEY}`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          system_instruction: {
-            parts: [{ text: systemPrompt }]
-          },
-          contents: [
-            { role: "user", parts: [{ text: userPrompt }] }
-          ],
-          generationConfig: {
-            temperature: 0.7,
-            responseMimeType: "application/json"
-          }
-        })
-      });
-    }
-
-    if (!response.ok) {
-      const errorText = await response.text();
-      console.error("Gemini API Error:", errorText);
-      throw new Error(`AI API failed: ${response.status}`);
-    }
-
-    const data = await response.json();
-    const aiText = data?.candidates?.[0]?.content?.parts?.[0]?.text;
-    
-    if (!aiText) {
-      throw new Error("Empty response from AI");
-    }
-
-    let insights: string[] = [];
-    try {
-      insights = JSON.parse(aiText);
-      if (!Array.isArray(insights)) {
-        insights = [aiText];
+    // Len Den Status
+    md += `### 📒 Udhaari (Len-Den)\n`;
+    if (lenaHai.length === 0 && denaHai.length === 0) {
+      md += `Bahut badhiya! Market mein aapka koi udhaar ya baaki nahi hai.\n\n`;
+    } else {
+      if (lenaHai.length > 0) {
+        md += `**Aapko Market se Lena hai (Receivables):**\n`;
+        lenaHai.slice(0, 5).forEach(l => md += `- ${l}\n`);
+        if (lenaHai.length > 5) md += `- *...aur ${lenaHai.length - 5} log.*\n`;
       }
-    } catch (e) {
-      // Fallback if AI didn't return proper JSON despite the instruction
-      insights = aiText.split('\n').map((l: string) => l.trim().replace(/^[-*]\s*/, '')).filter(Boolean);
+      if (denaHai.length > 0) {
+        md += `\n**Aapko Market mein Dena hai (Payables):**\n`;
+        denaHai.slice(0, 5).forEach(d => md += `- ${d}\n`);
+        if (denaHai.length > 5) md += `- *...aur ${denaHai.length - 5} log.*\n`;
+      }
+      md += `> **Advice:** Jisse paise lene hain unhe jaldi Khata se WhatsApp reminder bhej dein!\n\n`;
     }
 
-    return NextResponse.json({ insights });
+    // Expiry Status
+    md += `### ⏰ Expiring Batches\n`;
+    if (expiring.length > 0) {
+      md += `Kuch medicines aane wale 2 mahine mein expire hone wali hain:\n`;
+      expiring.slice(0, 5).forEach(e => {
+        md += `- Batch **${e.batchNo}**: Expiring on ${e.expiry} (Qty: ${e.qty})\n`;
+      });
+      if (expiring.length > 5) md += `- *...aur ${expiring.length - 5} batches.*\n`;
+      md += `> **Advice:** In medicines ko jaldi nikalne ki koshish karein!\n\n`;
+    } else {
+      md += `Abhi koi batch jaldi expire nahi ho raha hai. 👍\n\n`;
+    }
 
-  } catch (error: any) {
-    console.error("AI Insights Route Error:", error);
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    // Advice
+    md += `### 💡 Business Tip\n`;
+    md += `Apne regular customers ko discount dekar unhe khush rakhein, aur daily ka hisaab verify karein. Badhiya kaam chal raha hai! 🚀`;
+
+    return Response.json({ ok: true, insights: md });
+  } catch(e) {
+    console.error(e);
+    return Response.json({ ok: false, error: "Failed to generate insights" });
   }
 }

@@ -122,6 +122,13 @@ export default async function InvoiceDetail({ params }: { params: Promise<{ id: 
           </div>
         )}
       </div>
+
+      <script dangerouslySetInnerHTML={{ __html: `
+        const urlParams = new URLSearchParams(window.location.search);
+        if (urlParams.get('print') === 'true') {
+          setTimeout(() => { window.print(); }, 800);
+        }
+      `}} />
     </div>
   );
 }

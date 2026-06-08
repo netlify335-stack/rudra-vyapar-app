@@ -76,6 +76,10 @@ export function POSClient({ products, customers, isPurchase = false, storeName }
     setCart((c) => {
       const idx = c.findIndex((x) => x.productId === p.id);
       if (idx >= 0) {
+        if (!isPurchase && c[idx].quantity + 1 > p.currentStock) {
+          alert(`Cannot exceed available stock! Only ${p.currentStock} left.`);
+          return c;
+        }
         const copy = c.slice();
         copy[idx] = { ...copy[idx], quantity: copy[idx].quantity + 1 };
         return copy;
@@ -173,13 +177,11 @@ export function POSClient({ products, customers, isPurchase = false, storeName }
         
         if (action === "print" || includePdf) {
           if (isPurchase) {
-            router.push(`/dashboard/purchases`);
+            // Stay on page
           } else {
-            const newTab = window.open(`/dashboard/invoices/${data.invoiceId}`, "_blank");
-            if (!newTab) router.push(`/dashboard/invoices/${data.invoiceId}`);
+            const newTab = window.open(`/dashboard/invoices/${data.invoiceId}?print=true`, "_blank");
+            if (!newTab) alert("Popup blocked! Please allow popups to open the PDF automatically.");
           }
-        } else if (action === "save") {
-            window.location.href = isPurchase ? `/dashboard/purchases` : `/dashboard/invoices`;
         } else if (action === "whatsapp") {
           const waNum = partyPhone.replace(/[^0-9]/g, "").replace(/^91/, "");
           const waLink = waNum ? `https://wa.me/91${waNum}?text=${msg}` : `https://wa.me/?text=${msg}`;
@@ -191,7 +193,10 @@ export function POSClient({ products, customers, isPurchase = false, storeName }
           window.location.href = smsLink;
         }
 
-        if (action !== "print" && action !== "save") {
+        if (action === "save") {
+            // Just refresh data
+            router.refresh();
+        } else if (action !== "print" && action !== "save") {
            router.refresh();
         }
       } else {
@@ -470,18 +475,11 @@ export function POSClient({ products, customers, isPurchase = false, storeName }
               </div>
             )}
             <button
-              onClick={() => {
-                if (isPurchase) {
-                  saveInvoice("save");
-                } else {
-                  const incPdf = (document.getElementById("includePdf") as HTMLInputElement)?.checked;
-                  saveInvoice("print", incPdf);
-                }
-              }}
+              onClick={() => saveInvoice("save")}
               disabled={saving || cart.length === 0 || ((paymentMode === "credit" || (paymentMode === "partial" && (splitMode1 === "credit" || splitMode2 === "credit"))) && customerId === "walkin")}
               className="w-full rounded-xl bg-slate-900 px-4 py-3 text-sm font-bold text-white shadow-md transition hover:scale-[1.01] disabled:cursor-not-allowed disabled:opacity-50"
             >
-              {saving ? "Saving..." : (isPurchase ? `Save Purchase · ${formatINR(totals.total)}` : `Save & Print  ·  ${formatINR(totals.total)}`)}
+              {saving ? "Saving..." : `Save Bill · ${formatINR(totals.total)}`}
             </button>
             <div className="flex gap-2">
               <button
