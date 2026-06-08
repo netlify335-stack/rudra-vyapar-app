@@ -13,13 +13,18 @@ type Product = {
   currentStock: number;
   category: string | null;
   barcode: string | null;
+  rackLocation?: string | null;
+  hasVariants?: boolean;
+  variants?: { id: string; label: string; price: number; currentStock: number }[];
 };
 
 type Customer = { id: string; name: string; phone: string | null; gstin: string | null; address?: string | null };
 
 type CartLine = {
   productId: string;
+  variantId?: string | null;
   name: string;
+  variantName?: string | null;
   hsnCode: string | null;
   unit: string;
   rate: number;
@@ -40,7 +45,9 @@ export function POSClient({ products, customers, isPurchase = false, storeName }
   const [splitMode1, setSplitMode1] = useState<"cash" | "upi" | "card" | "credit">("cash");
   const [splitMode2, setSplitMode2] = useState<"cash" | "upi" | "card" | "credit">("upi");
   const [splitAmount1, setSplitAmount1] = useState<string>("");
+  const [globalDiscountPercent, setGlobalDiscountPercent] = useState<number>(0);
   const [notes, setNotes] = useState("");
+  const [variantModalOpen, setVariantModalOpen] = useState<Product | null>(null);
   const [saving, setSaving] = useState(false);
   const [savedInvoiceNo, setSavedInvoiceNo] = useState<string | null>(null);
   const searchRef = useRef<HTMLInputElement | null>(null);
@@ -63,21 +70,31 @@ export function POSClient({ products, customers, isPurchase = false, storeName }
         (p) =>
           p.name.toLowerCase().includes(q) ||
           (p.category ?? "").toLowerCase().includes(q) ||
+          (p.rackLocation ?? "").toLowerCase().includes(q) ||
           (p.barcode ?? "").includes(q),
       )
       .slice(0, 30);
   }, [query, products]);
 
-  function addProduct(p: Product) {
-    if (!isPurchase && p.currentStock <= 0) {
+  function addProduct(p: Product, variant?: {id: string, label: string, price: number, currentStock: number}) {
+    if (p.hasVariants && !variant) {
+      setVariantModalOpen(p);
+      return;
+    }
+
+    const stock = variant ? variant.currentStock : p.currentStock;
+    const price = variant ? variant.price : p.sellingPrice;
+    const key = variant ? `${p.id}-${variant.id}` : p.id;
+
+    if (!isPurchase && stock <= 0) {
       alert("Item is out of stock!");
       return;
     }
     setCart((c) => {
-      const idx = c.findIndex((x) => x.productId === p.id);
+      const idx = c.findIndex((x) => (variant ? x.variantId === variant.id : x.productId === p.id));
       if (idx >= 0) {
-        if (!isPurchase && c[idx].quantity + 1 > p.currentStock) {
-          alert(`Cannot exceed available stock! Only ${p.currentStock} left.`);
+        if (!isPurchase && c[idx].quantity + 1 > stock) {
+          alert(`Cannot exceed available stock! Only ${stock} left.`);
           return c;
         }
         const copy = c.slice();
@@ -88,16 +105,19 @@ export function POSClient({ products, customers, isPurchase = false, storeName }
         ...c,
         {
           productId: p.id,
+          variantId: variant ? variant.id : null,
           name: p.name,
+          variantName: variant ? variant.label : null,
           hsnCode: p.hsnCode,
           unit: p.unit,
-          rate: p.sellingPrice,
+          rate: price,
           quantity: 1,
           discountPercent: 0,
           gstRate: p.gstRate,
         },
       ];
     });
+    setVariantModalOpen(null);
   }
 
   function updateLine(i: number, patch: Partial<CartLine>) {
@@ -117,13 +137,17 @@ export function POSClient({ products, customers, isPurchase = false, storeName }
       subtotal += g; discount += d; taxable += t; tax += tx;
     }
     const total = taxable + tax;
+    const globalDiscountAmount = (total * globalDiscountPercent) / 100;
+    const finalTotal = total - globalDiscountAmount;
+    
     return {
       subtotal: r2(subtotal),
       discount: r2(discount),
       taxable: r2(taxable),
       cgst: r2(tax / 2),
       sgst: r2(tax / 2),
-      total: r2(total),
+      globalDiscountAmount: r2(globalDiscountAmount),
+      total: r2(finalTotal),
     };
   }, [cart]);
 
@@ -243,13 +267,15 @@ export function POSClient({ products, customers, isPurchase = false, storeName }
               >
                 <div className="line-clamp-2 text-xs font-semibold text-slate-800 group-hover:text-orange-700">{p.name}</div>
                 <div className="mt-1 flex items-end justify-between gap-1">
-                  <span className="text-base font-bold text-slate-900">{formatINR(p.sellingPrice, true)}</span>
+                  <span className="text-base font-bold text-slate-900">
+                    {p.hasVariants ? "Multiple Prices" : formatINR(p.sellingPrice, true)}
+                  </span>
                   <span className="text-[10px] text-slate-500">{p.gstRate}% GST</span>
                 </div>
                 <div className="mt-1 flex items-center justify-between text-[10px]">
-                  <span className="text-slate-500">{p.category}</span>
-                  <span className={p.currentStock <= 0 ? "font-bold text-rose-600" : "text-slate-600"}>
-                    Stock {p.currentStock} {p.unit}
+                  <span className="text-slate-500">{p.category} {p.rackLocation ? `· ${p.rackLocation}` : ""}</span>
+                  <span className={!p.hasVariants && p.currentStock <= 0 ? "font-bold text-rose-600" : "text-slate-600"}>
+                    {p.hasVariants ? "Variants Available" : `Stock ${p.currentStock} ${p.unit}`}
                   </span>
                 </div>
               </button>
@@ -319,7 +345,10 @@ export function POSClient({ products, customers, isPurchase = false, storeName }
               <div key={i} className="rounded-xl p-2 hover:bg-slate-50">
                 <div className="flex items-start justify-between gap-2">
                   <div className="min-w-0 flex-1">
-                    <div className="truncate text-sm font-semibold text-slate-800">{it.name}</div>
+                    <div className="truncate text-sm font-semibold text-slate-800">
+                      {it.name}
+                      {it.variantName && <span className="ml-1 text-[11px] font-normal text-slate-500">({it.variantName})</span>}
+                    </div>
                     <div className="text-[11px] text-slate-500">{formatINR(it.rate)} × {it.quantity} {it.unit} · GST {it.gstRate}%</div>
                   </div>
                   <button onClick={() => removeLine(i)} className="text-slate-400 hover:text-rose-500" aria-label="Remove">✕</button>
@@ -336,9 +365,12 @@ export function POSClient({ products, customers, isPurchase = false, storeName }
                         let val = Math.max(0.01, Number(e.target.value));
                         if (!isPurchase) {
                           const p = products.find(p => p.id === it.productId);
-                          if (p && val > p.currentStock) {
-                            alert("Cannot exceed available stock!");
-                            val = p.currentStock;
+                          if (p) {
+                             const stock = it.variantId ? p.variants?.find(v => v.id === it.variantId)?.currentStock : p.currentStock;
+                             if (stock !== undefined && val > stock) {
+                               alert("Cannot exceed available stock!");
+                               val = stock;
+                             }
                           }
                         }
                         updateLine(i, { quantity: val });
@@ -348,9 +380,12 @@ export function POSClient({ products, customers, isPurchase = false, storeName }
                     <button onClick={() => {
                       if (!isPurchase) {
                         const p = products.find(p => p.id === it.productId);
-                        if (p && it.quantity >= p.currentStock) {
-                          alert("Cannot exceed available stock!");
-                          return;
+                        if (p) {
+                           const stock = it.variantId ? p.variants?.find(v => v.id === it.variantId)?.currentStock : p.currentStock;
+                           if (stock !== undefined && it.quantity >= stock) {
+                             alert("Cannot exceed available stock!");
+                             return;
+                           }
                         }
                       }
                       updateLine(i, { quantity: it.quantity + 1 });
@@ -378,6 +413,21 @@ export function POSClient({ products, customers, isPurchase = false, storeName }
             <Row label="Taxable" value={formatINR(totals.taxable)} />
             <Row label="CGST" value={formatINR(totals.cgst)} muted />
             <Row label="SGST" value={formatINR(totals.sgst)} muted />
+            
+            <div className="mt-2 flex items-center justify-between border-t border-slate-100 pt-2">
+              <span className="text-sm font-bold text-emerald-600">Global Discount (%)</span>
+              <input 
+                type="number" min={0} max={100}
+                value={globalDiscountPercent}
+                onChange={e => setGlobalDiscountPercent(Math.max(0, Math.min(100, Number(e.target.value))))}
+                className="w-16 rounded border border-slate-200 px-2 py-1 text-right text-sm outline-none focus:border-orange-400"
+              />
+            </div>
+
+            {totals.globalDiscountAmount > 0 && (
+              <Row label="Global Discount Amount" value={`− ${formatINR(totals.globalDiscountAmount)}`} color="text-emerald-600" />
+            )}
+
             <div className="mt-2 flex items-baseline justify-between border-t border-dashed border-slate-200 pt-2">
               <span className="text-sm font-bold text-slate-700">Total</span>
               <span className="text-2xl font-bold text-slate-950">{formatINR(totals.total)}</span>
@@ -475,7 +525,10 @@ export function POSClient({ products, customers, isPurchase = false, storeName }
               </div>
             )}
             <button
-              onClick={() => saveInvoice("save")}
+              onClick={() => {
+                const incPdf = (document.getElementById("includePdf") as HTMLInputElement)?.checked;
+                saveInvoice(incPdf ? "print" : "save");
+              }}
               disabled={saving || cart.length === 0 || ((paymentMode === "credit" || (paymentMode === "partial" && (splitMode1 === "credit" || splitMode2 === "credit"))) && customerId === "walkin")}
               className="w-full rounded-xl bg-slate-900 px-4 py-3 text-sm font-bold text-white shadow-md transition hover:scale-[1.01] disabled:cursor-not-allowed disabled:opacity-50"
             >
@@ -506,6 +559,34 @@ export function POSClient({ products, customers, isPurchase = false, storeName }
           </div>
         </div>
       </div>
+
+      {variantModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 p-4 backdrop-blur-sm">
+          <div className="w-full max-w-md rounded-2xl bg-white p-5 shadow-2xl">
+            <div className="mb-4 flex items-center justify-between border-b pb-3">
+              <h3 className="text-lg font-bold text-slate-900">Select Variant</h3>
+              <button onClick={() => setVariantModalOpen(null)} className="rounded-lg p-2 text-slate-400 hover:bg-slate-100 hover:text-slate-700">✕</button>
+            </div>
+            <div className="space-y-2 max-h-60 overflow-y-auto pr-2">
+              {variantModalOpen.variants?.map(v => (
+                <button
+                  key={v.id}
+                  onClick={() => addProduct(variantModalOpen, v)}
+                  disabled={!isPurchase && v.currentStock <= 0}
+                  className="w-full flex items-center justify-between rounded-xl border border-slate-200 p-3 hover:border-orange-300 disabled:opacity-50 disabled:hover:border-slate-200 transition text-left"
+                >
+                  <div>
+                    <div className="font-semibold text-slate-800 text-sm">{v.label}</div>
+                    <div className="text-[11px] text-slate-500">Stock: {v.currentStock}</div>
+                  </div>
+                  <div className="font-bold text-slate-900">{formatINR(v.price, true)}</div>
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+
     </div>
   );
 }

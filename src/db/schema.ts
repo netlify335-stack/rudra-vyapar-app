@@ -27,6 +27,7 @@ export const stores = pgTable("stores", {
   ownerId: uuid("owner_id").references(() => users.id),
   name: varchar("name", { length: 255 }).notNull(),
   type: varchar("type", { length: 50 }).default("kirana"),
+  businessType: varchar("business_type", { length: 100 }), // e.g. pharmacy, clothing, hardware
   gstin: varchar("gstin", { length: 15 }),
   pan: varchar("pan", { length: 10 }),
   fssaiNo: varchar("fssai_no", { length: 20 }),
@@ -46,6 +47,52 @@ export const stores = pgTable("stores", {
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
 });
 
+// Categories (Global per store)
+export const categories = pgTable(
+  "categories",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    storeId: uuid("store_id").references(() => stores.id).notNull(),
+    name: varchar("name", { length: 100 }).notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => ({
+    storeIdx: index("categories_store_idx").on(t.storeId),
+  })
+);
+
+// Store Extras (Colors, Sizes, Materials)
+export const storeExtras = pgTable(
+  "store_extras",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    storeId: uuid("store_id").references(() => stores.id).notNull(),
+    type: varchar("type", { length: 20 }).notNull(), // 'color' | 'size' | 'material'
+    name: varchar("name", { length: 100 }).notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => ({
+    storeIdx: index("store_extras_store_idx").on(t.storeId),
+  })
+);
+
+// Discounts
+export const discounts = pgTable(
+  "discounts",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    storeId: uuid("store_id").references(() => stores.id).notNull(),
+    name: varchar("name", { length: 255 }).notNull(), // e.g. "Eid Special"
+    percentage: numeric("percentage", { precision: 5, scale: 2 }).default("0").notNull(),
+    rules: jsonb("rules").default('{}').notNull(), // e.g. { categoryIds: [], colorIds: [] }
+    isActive: boolean("is_active").default(true).notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => ({
+    storeIdx: index("discounts_store_idx").on(t.storeId),
+  })
+);
+
 // Parties: customers and suppliers
 export const parties = pgTable(
   "parties",
@@ -62,9 +109,8 @@ export const parties = pgTable(
     state: varchar("state", { length: 50 }),
     stateCode: varchar("state_code", { length: 2 }),
     creditLimit: numeric("credit_limit", { precision: 12, scale: 2 }).default("0"),
-    // positive => party owes the store (receivable)
-    // negative => store owes party (payable)
     outstandingBalance: numeric("outstanding_balance", { precision: 12, scale: 2 }).default("0").notNull(),
+    loyaltyPoints: integer("loyalty_points").default(0).notNull(),
     tag: varchar("tag", { length: 30 }), // regular | vip | defaulter
     notes: text("notes"),
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
@@ -83,21 +129,24 @@ export const products = pgTable(
     name: varchar("name", { length: 255 }).notNull(),
     sku: varchar("sku", { length: 100 }),
     barcode: varchar("barcode", { length: 100 }),
-    category: varchar("category", { length: 100 }),
+    categoryId: uuid("category_id").references(() => categories.id), // Link to categories table
+    category: varchar("category", { length: 100 }), // Keeping legacy text temporarily for safety
     hsnCode: varchar("hsn_code", { length: 8 }),
     unit: varchar("unit", { length: 20 }).default("PCS").notNull(),
     purchasePrice: numeric("purchase_price", { precision: 10, scale: 2 }).default("0").notNull(),
     sellingPrice: numeric("selling_price", { precision: 10, scale: 2 }).default("0").notNull(),
-    mrp: numeric("mrp", { precision: 10, scale: 2 }).default("0").notNull(),
+    mrp: numeric("mrp", { precision: 10, scale: 2 }).default("0").notNull(), // Deprecated but kept for safety
     gstRate: numeric("gst_rate", { precision: 5, scale: 2 }).default("18").notNull(),
     minStockLevel: numeric("min_stock_level", { precision: 10, scale: 3 }).default("0").notNull(),
-    currentStock: numeric("current_stock", { precision: 10, scale: 3 }).default("0").notNull(),
+    currentStock: numeric("current_stock", { precision: 10, scale: 3 }).default("0").notNull(), // Base stock
+    rackLocation: varchar("rack_location", { length: 100 }), // NEW
     trackExpiry: boolean("track_expiry").default(false).notNull(),
     isScheduleH: boolean("is_schedule_h").default(false).notNull(),
     composition: text("composition"),
     description: text("description"),
     manufacturer: varchar("manufacturer", { length: 255 }),
     isActive: boolean("is_active").default(true).notNull(),
+    hasVariants: boolean("has_variants").default(false).notNull(), // If true, stock is managed via product_variants
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
   },
   (t) => ({
@@ -106,16 +155,80 @@ export const products = pgTable(
   }),
 );
 
+// Product Units (Multi-unit support)
+export const productUnits = pgTable(
+  "product_units",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    productId: uuid("product_id").references(() => products.id, { onDelete: "cascade" }).notNull(),
+    unitName: varchar("unit_name", { length: 50 }).notNull(), // e.g. Box, Strip
+    conversionRate: numeric("conversion_rate", { precision: 10, scale: 3 }).notNull(), // e.g. 10 (1 strip = 10 tablets)
+    price: numeric("price", { precision: 10, scale: 2 }), // Optional specific price for this unit
+    barcode: varchar("barcode", { length: 100 }),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => ({
+    productIdx: index("product_units_product_idx").on(t.productId),
+  })
+);
+
+// Product Extras mapping
+export const productExtras = pgTable(
+  "product_extras",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    productId: uuid("product_id").references(() => products.id, { onDelete: "cascade" }).notNull(),
+    extraId: uuid("extra_id").references(() => storeExtras.id, { onDelete: "cascade" }).notNull(),
+  },
+  (t) => ({
+    productIdx: index("product_extras_product_idx").on(t.productId),
+  })
+);
+
+// Product Variants (Combos)
+export const productVariants = pgTable(
+  "product_variants",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    productId: uuid("product_id").references(() => products.id, { onDelete: "cascade" }).notNull(),
+    sizeId: uuid("size_id").references(() => storeExtras.id, { onDelete: "set null" }),
+    colorId: uuid("color_id").references(() => storeExtras.id, { onDelete: "set null" }),
+    materialId: uuid("material_id").references(() => storeExtras.id, { onDelete: "set null" }),
+    sku: varchar("sku", { length: 100 }),
+    barcode: varchar("barcode", { length: 100 }),
+    price: numeric("price", { precision: 10, scale: 2 }).notNull(),
+    currentStock: numeric("current_stock", { precision: 10, scale: 3 }).default("0").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => ({
+    productIdx: index("product_variants_product_idx").on(t.productId),
+  })
+);
+
 // Batches (for pharmacy expiry tracking)
 export const batches = pgTable("batches", {
   id: uuid("id").defaultRandom().primaryKey(),
   productId: uuid("product_id").references(() => products.id).notNull(),
+  variantId: uuid("variant_id").references(() => productVariants.id), // If batch belongs to a specific variant
   storeId: uuid("store_id").references(() => stores.id).notNull(),
   batchNo: varchar("batch_no", { length: 100 }).notNull(),
   mfgDate: date("mfg_date"),
   expiryDate: date("expiry_date").notNull(),
   quantity: numeric("quantity", { precision: 10, scale: 3 }).default("0").notNull(),
   mrp: numeric("mrp", { precision: 10, scale: 2 }).default("0"),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+});
+
+// Inventory Adjustments (Damage, Loss, Initial)
+export const inventoryAdjustments = pgTable("inventory_adjustments", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  storeId: uuid("store_id").references(() => stores.id).notNull(),
+  productId: uuid("product_id").references(() => products.id).notNull(),
+  variantId: uuid("variant_id").references(() => productVariants.id),
+  batchId: uuid("batch_id").references(() => batches.id),
+  type: varchar("type", { length: 20 }).notNull(), // 'damage', 'loss', 'correction', 'addition'
+  quantity: numeric("quantity", { precision: 10, scale: 3 }).notNull(), // Negative for damage/loss
+  reason: text("reason"),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
 });
 
@@ -126,7 +239,7 @@ export const invoices = pgTable(
     id: uuid("id").defaultRandom().primaryKey(),
     storeId: uuid("store_id").references(() => stores.id).notNull(),
     invoiceNo: varchar("invoice_no", { length: 50 }).notNull(),
-    type: varchar("type", { length: 20 }).notNull(), // sale | purchase
+    type: varchar("type", { length: 20 }).notNull(), // sale | purchase | estimate | return
     status: varchar("status", { length: 20 }).default("confirmed").notNull(),
     partyId: uuid("party_id").references(() => parties.id),
     partyName: varchar("party_name", { length: 255 }),
@@ -149,6 +262,7 @@ export const invoices = pgTable(
     splitAmount1: numeric("split_amount1", { precision: 12, scale: 2 }),
     splitPaymentMode2: varchar("split_payment_mode2", { length: 50 }),
     splitAmount2: numeric("split_amount2", { precision: 12, scale: 2 }),
+    appliedDiscountId: uuid("applied_discount_id").references(() => discounts.id),
     notes: text("notes"),
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
   },
@@ -162,7 +276,9 @@ export const invoiceItems = pgTable("invoice_items", {
   id: uuid("id").defaultRandom().primaryKey(),
   invoiceId: uuid("invoice_id").references(() => invoices.id, { onDelete: "cascade" }).notNull(),
   productId: uuid("product_id").references(() => products.id),
+  variantId: uuid("variant_id").references(() => productVariants.id),
   productName: varchar("product_name", { length: 255 }).notNull(),
+  variantName: varchar("variant_name", { length: 255 }), // e.g. "Size: XL, Color: Red"
   hsnCode: varchar("hsn_code", { length: 8 }),
   quantity: numeric("quantity", { precision: 10, scale: 3 }).notNull(),
   unit: varchar("unit", { length: 20 }),
@@ -181,8 +297,6 @@ export const khataEntries = pgTable(
     id: uuid("id").defaultRandom().primaryKey(),
     storeId: uuid("store_id").references(() => stores.id).notNull(),
     partyId: uuid("party_id").references(() => parties.id).notNull(),
-    // "credit" = party took goods on udhaar (party owes you, balance += amount)
-    // "debit"  = party paid back (balance -= amount)
     type: varchar("type", { length: 10 }).notNull(),
     amount: numeric("amount", { precision: 12, scale: 2 }).notNull(),
     notes: text("notes"),

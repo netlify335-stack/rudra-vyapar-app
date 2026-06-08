@@ -1,5 +1,5 @@
 "use client";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 
 const GST_RATES = [0, 5, 12, 18, 28];
@@ -13,15 +13,20 @@ export function EditProductModal({ product, onClose }: { product: any; onClose: 
     unit: product.unit || "PCS",
     purchasePrice: product.purchasePrice || "",
     sellingPrice: product.sellingPrice || "",
-    mrp: product.mrp || "",
     gstRate: Number(product.gstRate) || 18,
     minStockLevel: product.minStockLevel || "10",
     currentStock: product.currentStock || "0",
+    rackLocation: product.rackLocation || "",
     trackExpiry: product.trackExpiry || false,
     description: product.description || "",
     expiryPeriod: "none",
   });
   const [saving, setSaving] = useState(false);
+  const [categories, setCategories] = useState<any[]>([]);
+
+  useEffect(() => {
+    fetch("/api/categories").then(res => res.json()).then(setCategories).catch(console.error);
+  }, []);
 
   async function save() {
     if (!form.name || !form.sellingPrice) return;
@@ -58,16 +63,21 @@ export function EditProductModal({ product, onClose }: { product: any; onClose: 
           <Field label="Description">
             <input value={form.description} onChange={(e) => update("description", e.target.value)} className={INPUT} placeholder="Enter description..." />
           </Field>
-          <Field label="Category"><input value={form.category} onChange={(e) => update("category", e.target.value)} className={INPUT} /></Field>
+          <Field label="Category">
+            <select value={form.category} onChange={(e) => update("category", e.target.value)} className={INPUT}>
+              <option value="">Select Category</option>
+              {categories.map((c) => <option key={c.id} value={c.name}>{c.name}</option>)}
+            </select>
+          </Field>
+          <Field label="Rack Location">
+            <input value={form.rackLocation} onChange={(e) => update("rackLocation", e.target.value)} className={INPUT} placeholder="e.g. A-3" />
+          </Field>
           <Field label="HSN Code"><input value={form.hsnCode} onChange={(e) => update("hsnCode", e.target.value)} className={INPUT} /></Field>
           <Field label="Unit"><input value={form.unit} onChange={(e) => update("unit", e.target.value)} className={INPUT} /></Field>
           <Field label="Purchase Price"><input type="number" value={form.purchasePrice} onChange={(e) => update("purchasePrice", e.target.value)} className={INPUT} /></Field>
           <Field label="Selling Price *"><input type="number" value={form.sellingPrice} onChange={(e) => update("sellingPrice", e.target.value)} className={INPUT} /></Field>
-          <Field label="MRP"><input type="number" value={form.mrp} onChange={(e) => update("mrp", e.target.value)} className={INPUT} /></Field>
           <Field label="GST %">
-            <select value={form.gstRate} onChange={(e) => update("gstRate", Number(e.target.value))} className={INPUT}>
-              {GST_RATES.map((r) => <option key={r} value={r}>{r}%</option>)}
-            </select>
+            <input type="number" value={form.gstRate} onChange={(e) => update("gstRate", Number(e.target.value))} className={INPUT} />
           </Field>
           <Field label="Min Stock"><input type="number" value={form.minStockLevel} onChange={(e) => update("minStockLevel", e.target.value)} className={INPUT} /></Field>
           <Field label="Current Stock"><input type="number" value={form.currentStock} onChange={(e) => update("currentStock", e.target.value)} className={INPUT} /></Field>

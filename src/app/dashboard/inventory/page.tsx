@@ -5,6 +5,7 @@ import { getActiveStoreId } from "@/lib/session";
 import { formatINR, formatNumber, formatDate } from "@/lib/format";
 import { AddProductForm } from "./AddProductForm";
 import { ProductList } from "./ProductList";
+import { InventorySettingsButtons } from "./InventorySettingsButtons";
 
 export const dynamic = "force-dynamic";
 
@@ -49,7 +50,10 @@ export default async function InventoryPage() {
         <Card label="Expiring (90d)" value={String(expiring.length)} icon="⏰" tint="from-amber-500 to-orange-600" />
       </div>
 
-      <AddProductForm />
+      <div className="flex flex-wrap items-center gap-3">
+        <AddProductForm />
+        <InventorySettingsButtons />
+      </div>
 
       {/* Low stock */}
       {lowStock.length > 0 && (

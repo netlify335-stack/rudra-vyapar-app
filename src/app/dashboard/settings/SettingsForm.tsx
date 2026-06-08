@@ -35,7 +35,21 @@ export function SettingsForm({ store }: { store: any }) {
       title: "Store profile",
       fields: [
         { name: "name", label: "Name", type: "text" },
-        { name: "type", label: "Type", type: "text" },
+        { name: "type", label: "Store Category", type: "text" },
+        { 
+          name: "businessType", 
+          label: "Business Type (Changes default categories)", 
+          type: "select",
+          options: [
+            { value: "", label: "Select Business Type" },
+            { value: "grocery", label: "Grocery / Supermarket" },
+            { value: "pharmacy", label: "Pharmacy / Medical" },
+            { value: "clothing", label: "Clothing / Fashion" },
+            { value: "hardware", label: "Hardware / Tools" },
+            { value: "electronics", label: "Electronics" },
+            { value: "general", label: "General Store" }
+          ]
+        },
         { name: "phone", label: "Phone", type: "text" },
         { name: "email", label: "Email", type: "text" },
         { name: "address", label: "Address", type: "text" },
@@ -80,13 +94,26 @@ export function SettingsForm({ store }: { store: any }) {
               {s.fields.map((f) => (
                 <div key={f.name}>
                   <label className="mb-1 block text-xs font-semibold text-slate-500">{f.label}</label>
-                  <input
-                    type={f.type}
-                    name={f.name}
-                    value={formData[f.name] || ""}
-                    onChange={handleChange}
-                    className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-900 focus:border-orange-500 focus:outline-none"
-                  />
+                  {f.type === "select" ? (
+                    <select
+                      name={f.name}
+                      value={formData[f.name] || ""}
+                      onChange={handleChange as any}
+                      className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-900 focus:border-orange-500 focus:outline-none bg-white"
+                    >
+                      {f.options?.map((o) => (
+                        <option key={o.value} value={o.value}>{o.label}</option>
+                      ))}
+                    </select>
+                  ) : (
+                    <input
+                      type={f.type}
+                      name={f.name}
+                      value={formData[f.name] || ""}
+                      onChange={handleChange}
+                      className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-900 focus:border-orange-500 focus:outline-none"
+                    />
+                  )}
                 </div>
               ))}
             </div>

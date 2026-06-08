@@ -19,10 +19,10 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
       unit: b.unit,
       purchasePrice: String(b.purchasePrice),
       sellingPrice: String(b.sellingPrice),
-      mrp: String(b.mrp),
       gstRate: String(b.gstRate),
       minStockLevel: String(b.minStockLevel),
       currentStock: String(b.currentStock),
+      rackLocation: b.rackLocation || null,
       trackExpiry: b.trackExpiry,
       description: b.description,
     })

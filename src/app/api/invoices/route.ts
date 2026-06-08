@@ -8,7 +8,9 @@ export const dynamic = "force-dynamic";
 
 interface ItemBody {
   productId: string;
+  variantId?: string | null;
   name: string;
+  variantName?: string | null;
   hsnCode?: string | null;
   unit?: string;
   rate: number;
@@ -128,7 +130,9 @@ export async function POST(req: Request) {
       await db.insert(invoiceItems).values({
         invoiceId: inv.id,
         productId: it.productId,
+        variantId: it.variantId ?? null,
         productName: it.name,
+        variantName: it.variantName ?? null,
         hsnCode: it.hsnCode ?? null,
         quantity: String(it.quantity),
         unit: it.unit ?? "PCS",
@@ -139,17 +143,56 @@ export async function POST(req: Request) {
         taxAmount: String(round2(tax)),
         totalAmount: String(round2(tx + tax)),
       });
+      
       // Decrement stock for sales, increment for purchase
       if (type === "sale") {
-        await db
-          .update(products)
-          .set({ currentStock: sql`${products.currentStock} - ${it.quantity}` })
-          .where(eq(products.id, it.productId));
+        if (it.variantId) {
+          await db
+            .update(productVariants)
+            .set({ currentStock: sql`${productVariants.currentStock} - ${it.quantity}` })
+            .where(eq(productVariants.id, it.variantId));
+        } else {
+          await db
+            .update(products)
+            .set({ currentStock: sql`${products.currentStock} - ${it.quantity}` })
+            .where(eq(products.id, it.productId));
+        }
+
+        // FEFO Logic for Batches
+        // Find batches with quantity > 0, ordered by expiryDate ASC
+        const availableBatches = await db.select()
+          .from(batches)
+          .where(and(
+            eq(batches.productId, it.productId),
+            sql`${batches.quantity} > 0`
+          ))
+          .orderBy(batches.expiryDate);
+
+        let remainingToDeduct = it.quantity;
+        for (const b of availableBatches) {
+          if (remainingToDeduct <= 0) break;
+          const bQty = Number(b.quantity);
+          const deductAmount = Math.min(bQty, remainingToDeduct);
+          
+          await db.update(batches)
+            .set({ quantity: String(bQty - deductAmount) })
+            .where(eq(batches.id, b.id));
+            
+          remainingToDeduct -= deductAmount;
+        }
+
       } else {
-        await db
-          .update(products)
-          .set({ currentStock: sql`${products.currentStock} + ${it.quantity}` })
-          .where(eq(products.id, it.productId));
+        if (it.variantId) {
+          await db
+            .update(productVariants)
+            .set({ currentStock: sql`${productVariants.currentStock} + ${it.quantity}` })
+            .where(eq(productVariants.id, it.variantId));
+        } else {
+          await db
+            .update(products)
+            .set({ currentStock: sql`${products.currentStock} + ${it.quantity}` })
+            .where(eq(products.id, it.productId));
+        }
       }
     }
 
