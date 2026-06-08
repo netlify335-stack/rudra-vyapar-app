@@ -159,7 +159,6 @@ export function POSClient({ products, customers, isPurchase = false, storeName }
       const partyName = customerId === "walkin"
         ? (walkinName.trim() || (isPurchase ? "Cash Supplier" : "Walk-in Customer"))
         : customers.find((c) => c.id === customerId)?.name ?? (isPurchase ? "Supplier" : "Customer");
-        : (customer?.name ?? (isPurchase ? "Supplier" : "Customer"));
       const partyPhone = customerId === "walkin" ? walkinPhone.trim() : (customer?.phone ?? "");
       const partyAddress = customerId === "walkin" ? walkinAddress.trim() : (customer?.address ?? "");
       
