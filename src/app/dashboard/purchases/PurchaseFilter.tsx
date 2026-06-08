@@ -4,6 +4,7 @@ import { useRouter } from "next/navigation";
 import { useState } from "react";
 
 export function PurchaseFilter({
+  currentQ,
   currentDateFilter,
   currentStart,
   currentEnd,
@@ -11,6 +12,7 @@ export function PurchaseFilter({
   currentMode,
   parties,
 }: {
+  currentQ: string;
   currentDateFilter: string;
   currentStart: string;
   currentEnd: string;
@@ -19,6 +21,7 @@ export function PurchaseFilter({
   parties: { id: string; name: string }[];
 }) {
   const router = useRouter();
+  const [q, setQ] = useState(currentQ || "");
   const [dateFilter, setDateFilter] = useState(currentDateFilter || "all");
   const [start, setStart] = useState(currentStart);
   const [end, setEnd] = useState(currentEnd);
@@ -26,19 +29,33 @@ export function PurchaseFilter({
   const [mode, setMode] = useState(currentMode || "all");
 
   const apply = () => {
-    let q = `?dateFilter=${dateFilter}`;
+    let query = `?dateFilter=${dateFilter}`;
+    if (q.trim()) query += `&q=${encodeURIComponent(q.trim())}`;
     if (dateFilter === "custom") {
       q += `&start=${start}&end=${end}`;
     }
-    if (supplier !== "all") q += `&supplier=${supplier}`;
-    if (mode !== "all") q += `&mode=${mode}`;
-    router.push(`/dashboard/purchases${q}`);
+    }
+    if (supplier !== "all") query += `&supplier=${supplier}`;
+    if (mode !== "all") query += `&mode=${mode}`;
+    router.push(`/dashboard/purchases${query}`);
   };
 
   return (
-    <div className="mb-4 flex flex-wrap items-end gap-4 rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
-      <div>
-        <label className="mb-1 block text-xs font-semibold text-slate-500">Date</label>
+    <div className="mb-4 space-y-4 rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+      <div className="relative max-w-md">
+        <input
+          placeholder="Search by supplier or bill no..."
+          value={q}
+          onChange={(e) => setQ(e.target.value)}
+          className="w-full rounded-xl border border-slate-300 px-4 py-2 text-sm outline-none focus:border-orange-500"
+          onKeyDown={(e) => {
+            if (e.key === "Enter") apply();
+          }}
+        />
+      </div>
+      <div className="flex flex-wrap items-end gap-4">
+        <div>
+          <label className="mb-1 block text-xs font-semibold text-slate-500">Date</label>
         <select
           value={dateFilter}
           onChange={(e) => setDateFilter(e.target.value)}
@@ -104,12 +121,13 @@ export function PurchaseFilter({
         </select>
       </div>
 
-      <button
-        onClick={apply}
-        className="rounded-lg bg-slate-900 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-slate-800"
-      >
-        Apply Filter
-      </button>
+        <button
+          onClick={apply}
+          className="rounded-lg bg-slate-900 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-slate-800"
+        >
+          Apply Filter
+        </button>
+      </div>
     </div>
   );
 }

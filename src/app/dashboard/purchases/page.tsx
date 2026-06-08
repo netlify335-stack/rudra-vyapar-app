@@ -1,6 +1,6 @@
 import { db } from "@/db";
 import { invoices, parties } from "@/db/schema";
-import { and, desc, eq, gte, lte } from "drizzle-orm";
+import { and, desc, eq, gte, lte, isNull, ilike, or } from "drizzle-orm";
 import { getActiveStoreId } from "@/lib/session";
 import { formatINR, formatDate } from "@/lib/format";
 import Link from "next/link";
@@ -16,6 +16,7 @@ export default async function PurchasesPage({
 }) {
   const storeId = (await getActiveStoreId())!;
   const params = await searchParams;
+  const qStr = (params.q as string) || "";
   const dateFilter = (params.dateFilter as string) || "all";
   const start = (params.start as string) || "";
   const end = (params.end as string) || "";
@@ -47,10 +48,11 @@ export default async function PurchasesPage({
         dateCondition,
         supplier !== "all"
           ? supplier === "walkin"
-            ? eq(invoices.partyId, null as any) // Null means walk-in
+            ? isNull(invoices.partyId) // Null means walk-in
             : eq(invoices.partyId, supplier)
           : undefined,
-        mode !== "all" ? eq(invoices.paymentMode, mode) : undefined
+        mode !== "all" ? eq(invoices.paymentMode, mode) : undefined,
+        qStr ? or(ilike(invoices.invoiceNo, `%${qStr}%`), ilike(invoices.partyName, `%${qStr}%`)) : undefined
       )
     )
     .orderBy(desc(invoices.createdAt));
@@ -74,6 +76,7 @@ export default async function PurchasesPage({
       </div>
 
       <PurchaseFilter
+        currentQ={qStr}
         currentDateFilter={dateFilter}
         currentStart={start}
         currentEnd={end}
