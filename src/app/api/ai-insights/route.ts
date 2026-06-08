@@ -5,7 +5,7 @@ import { getActiveStoreId } from "@/lib/session";
 
 export const dynamic = "force-dynamic";
 
-export async function GET() {
+export async function POST() {
   try {
     const storeId = await getActiveStoreId();
     if (!storeId) return Response.json({ ok: false, error: "No store" }, { status: 400 });
@@ -48,58 +48,46 @@ export async function GET() {
       .where(and(eq(batches.storeId, storeId), lte(batches.expiryDate, dateStr)))
       .execute();
 
-    // Generate Hinglish Markdown
-    let md = `Namaste! 🙏 Yahan aapke business ka aaj ka haal hai:\n\n`;
+    // Generate Hinglish array
+    let insightsArr: string[] = [];
 
     // Stock Status
-    md += `### 📉 Low Stock Alert\n`;
     if (actualLowStock.length > 0) {
-      md += `Dhyan dein, in items ka stock khatam hone wala hai ya ho gaya hai:\n`;
-      actualLowStock.slice(0, 10).forEach(p => {
-        md += `- **${p.name}**: Sirf ${p.currentStock} bache hain! (Minimum: ${p.minStockLevel})\n`;
+      let lowMsg = `📉 Low Stock Alert: In items ka stock khatam hone wala hai - `;
+      actualLowStock.slice(0, 5).forEach(p => {
+        lowMsg += `${p.name} (Sirf ${p.currentStock} bache hain), `;
       });
-      if (actualLowStock.length > 10) md += `- *...aur ${actualLowStock.length - 10} items.*\n`;
-      md += `> **Advice:** Inhe jaldi order kar lein taaki sales miss na ho!\n\n`;
+      insightsArr.push(lowMsg.slice(0, -2) + `. Inhe jaldi order kar lein!`);
     } else {
-      md += `Sabhi items ka stock badhiya hai! Koi low stock nahi hai. 🎉\n\n`;
+      insightsArr.push(`📉 Stock Status: Sabhi items ka stock badhiya hai! Koi low stock nahi hai. 🎉`);
     }
 
     // Len Den Status
-    md += `### 📒 Udhaari (Len-Den)\n`;
-    if (lenaHai.length === 0 && denaHai.length === 0) {
-      md += `Bahut badhiya! Market mein aapka koi udhaar ya baaki nahi hai.\n\n`;
+    if (lenaHai.length > 0 || denaHai.length > 0) {
+      let lenDenMsg = `📒 Udhaari (Len-Den): `;
+      if (lenaHai.length > 0) lenDenMsg += `Aapko market se ${lenaHai.length} logon ki udhaari wapas leni hai. `;
+      if (denaHai.length > 0) lenDenMsg += `Aapko ${denaHai.length} logon ko paise dene hain. `;
+      lenDenMsg += `Khata se WhatsApp pe reminder bhejna shuru karein!`;
+      insightsArr.push(lenDenMsg);
     } else {
-      if (lenaHai.length > 0) {
-        md += `**Aapko Market se Lena hai (Receivables):**\n`;
-        lenaHai.slice(0, 5).forEach(l => md += `- ${l}\n`);
-        if (lenaHai.length > 5) md += `- *...aur ${lenaHai.length - 5} log.*\n`;
-      }
-      if (denaHai.length > 0) {
-        md += `\n**Aapko Market mein Dena hai (Payables):**\n`;
-        denaHai.slice(0, 5).forEach(d => md += `- ${d}\n`);
-        if (denaHai.length > 5) md += `- *...aur ${denaHai.length - 5} log.*\n`;
-      }
-      md += `> **Advice:** Jisse paise lene hain unhe jaldi Khata se WhatsApp reminder bhej dein!\n\n`;
+      insightsArr.push(`📒 Udhaari (Len-Den): Bahut badhiya! Market mein aapka koi udhaar ya baaki nahi hai.`);
     }
 
     // Expiry Status
-    md += `### ⏰ Expiring Batches\n`;
     if (expiring.length > 0) {
-      md += `Kuch medicines aane wale 2 mahine mein expire hone wali hain:\n`;
-      expiring.slice(0, 5).forEach(e => {
-        md += `- Batch **${e.batchNo}**: Expiring on ${e.expiry} (Qty: ${e.qty})\n`;
+      let expMsg = `⏰ Expiring Batches: Kuch items aane wale 2 mahine mein expire hone wali hain - `;
+      expiring.slice(0, 3).forEach(e => {
+        expMsg += `Batch ${e.batchNo} (${e.expiry}), `;
       });
-      if (expiring.length > 5) md += `- *...aur ${expiring.length - 5} batches.*\n`;
-      md += `> **Advice:** In medicines ko jaldi nikalne ki koshish karein!\n\n`;
+      insightsArr.push(expMsg.slice(0, -2) + `. In items ko jaldi nikalne ki koshish karein!`);
     } else {
-      md += `Abhi koi batch jaldi expire nahi ho raha hai. 👍\n\n`;
+      insightsArr.push(`⏰ Expiring Batches: Abhi koi batch jaldi expire nahi ho raha hai. 👍`);
     }
 
     // Advice
-    md += `### 💡 Business Tip\n`;
-    md += `Apne regular customers ko discount dekar unhe khush rakhein, aur daily ka hisaab verify karein. Badhiya kaam chal raha hai! 🚀`;
+    insightsArr.push(`💡 Business Tip: Apne regular customers ko discount dekar unhe khush rakhein, aur daily ka hisaab verify karein. Badhiya kaam chal raha hai! 🚀`);
 
-    return Response.json({ ok: true, insights: md });
+    return Response.json({ ok: true, insights: insightsArr });
   } catch(e) {
     console.error(e);
     return Response.json({ ok: false, error: "Failed to generate insights" });
