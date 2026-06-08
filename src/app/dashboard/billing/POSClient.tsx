@@ -151,16 +151,17 @@ export function POSClient({ products, customers, isPurchase = false, storeName }
     };
   }, [cart]);
 
-  async function saveInvoice(action: "print" | "whatsapp" | "sms" | "save", includePdf: boolean = false) {
+  async function saveInvoice(action: "print" | "whatsapp" | "sms" | "save" | "estimate", includePdf: boolean = false) {
     if (!cart.length) return;
     setSaving(true);
     try {
       const partyId = customerId === "walkin" ? null : customerId;
+      const selectedCustomer = customers.find((c) => c.id === customerId);
       const partyName = customerId === "walkin"
         ? (walkinName.trim() || (isPurchase ? "Cash Supplier" : "Walk-in Customer"))
-        : customers.find((c) => c.id === customerId)?.name ?? (isPurchase ? "Supplier" : "Customer");
-      const partyPhone = customerId === "walkin" ? walkinPhone.trim() : (customer?.phone ?? "");
-      const partyAddress = customerId === "walkin" ? walkinAddress.trim() : (customer?.address ?? "");
+        : selectedCustomer?.name ?? (isPurchase ? "Supplier" : "Customer");
+      const partyPhone = customerId === "walkin" ? walkinPhone.trim() : (selectedCustomer?.phone ?? "");
+      const partyAddress = customerId === "walkin" ? walkinAddress.trim() : (selectedCustomer?.address ?? "");
       
       const finalSplitAmt1 = Number(splitAmount1) || 0;
       const finalSplitAmt2 = totals.total - finalSplitAmt1;

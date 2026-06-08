@@ -1,8 +1,8 @@
 import { db } from "@/db";
-import { invoices, invoiceItems, parties, products, stores, khataEntries } from "@/db/schema";
+import { invoices, invoiceItems, products, productVariants, parties, stores, khataEntries, batches } from "@/db/schema";
 import { getActiveStoreId } from "@/lib/session";
 import { calcInvoiceTotals, round2 } from "@/lib/gst";
-import { eq, sql } from "drizzle-orm";
+import { eq, sql, and } from "drizzle-orm";
 
 export const dynamic = "force-dynamic";
 
