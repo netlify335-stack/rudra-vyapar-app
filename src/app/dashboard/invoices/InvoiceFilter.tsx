@@ -32,8 +32,7 @@ export function InvoiceFilter({
     let query = `?dateFilter=${dateFilter}`;
     if (q.trim()) query += `&q=${encodeURIComponent(q.trim())}`;
     if (dateFilter === "custom") {
-      q += `&start=${start}&end=${end}`;
-    }
+      query += `&start=${start}&end=${end}`;
     }
     if (customer !== "all") query += `&customer=${customer}`;
     if (mode !== "all") query += `&mode=${mode}`;

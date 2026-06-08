@@ -32,8 +32,7 @@ export function PurchaseFilter({
     let query = `?dateFilter=${dateFilter}`;
     if (q.trim()) query += `&q=${encodeURIComponent(q.trim())}`;
     if (dateFilter === "custom") {
-      q += `&start=${start}&end=${end}`;
-    }
+      query += `&start=${start}&end=${end}`;
     }
     if (supplier !== "all") query += `&supplier=${supplier}`;
     if (mode !== "all") query += `&mode=${mode}`;
