@@ -169,7 +169,7 @@ export function POSClient({ products, customers, isPurchase = false, storeName }
             if (!newTab) router.push(`/dashboard/invoices/${data.invoiceId}`);
           }
         } else if (action === "save") {
-            router.push(isPurchase ? `/dashboard/purchases` : `/dashboard/invoices`);
+            window.location.href = isPurchase ? `/dashboard/purchases` : `/dashboard/invoices`;
         } else if (action === "whatsapp") {
           const waNum = partyPhone.replace(/[^0-9]/g, "").replace(/^91/, "");
           const waLink = waNum ? `https://wa.me/91${waNum}?text=${msg}` : `https://wa.me/?text=${msg}`;
