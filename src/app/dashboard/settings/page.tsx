@@ -5,6 +5,7 @@ import { getActiveStoreId } from "@/lib/session";
 import { SettingsForm } from "./SettingsForm";
 import { LicenseSettingsCard } from "./LicenseSettingsCard";
 import { BackupRestoreCard } from "./BackupRestoreCard";
+import { DataExportCard } from "./DataExportCard";
 import { LanguageSettings } from "./LanguageSettings";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { licenses } from "@/db/schema";
@@ -30,6 +31,7 @@ export default async function SettingsPage() {
         <ThemeToggle />
         {license ? <LicenseSettingsCard license={license} /> : <ActionCard icon="👥" title="Staff & Roles" desc="Add cashiers, managers with PIN login." cta="Coming soon" />}
         <BackupRestoreCard />
+        <DataExportCard />
       </div>
     </div>
   );
