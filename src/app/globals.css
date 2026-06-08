@@ -1,0 +1,37 @@
+@import "tailwindcss";
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+:root {
+  --color-saffron: #F97316;
+  --color-saffron-dark: #EA580C;
+  --color-indigo: #1E40AF;
+  --color-emerald: #10B981;
+  --color-rose: #EF4444;
+}
+
+html, body {
+  background: #F8FAFC;
+  color: #0F172A;
+  font-family: "DM Sans", "Inter", system-ui, -apple-system, "Segoe UI", "Noto Sans Devanagari", sans-serif;
+}
+
+html.dark, html.dark body {
+  background: #020617; /* slate-950 */
+  color: #F8FAFC; /* slate-50 */
+}
+
+.font-hindi {
+  font-family: "Noto Sans Devanagari", "DM Sans", sans-serif;
+}
+
+/* Scrollbar */
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-thumb { background: #CBD5E1; border-radius: 6px; }
+::-webkit-scrollbar-thumb:hover { background: #94A3B8; }
+::-webkit-scrollbar-track { background: transparent; }
+
+@media print {
+  .no-print { display: none !important; }
+  body { background: white; }
+}
