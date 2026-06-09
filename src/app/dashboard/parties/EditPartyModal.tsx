@@ -1,7 +1,9 @@
 "use client";
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-
+import { getLocalDb } from "@/db/local";
+import { parties } from "@/db/schema";
+import { eq } from "drizzle-orm";
 export function EditPartyModal({ party, onClose }: { party: any; onClose: () => void }) {
   const router = useRouter();
   const [type, setType] = useState<"customer" | "supplier">(party.type);
@@ -15,18 +17,20 @@ export function EditPartyModal({ party, onClose }: { party: any; onClose: () => 
     if (!name) return;
     setSaving(true);
     try {
-      const res = await fetch(`/api/parties/${party.id}`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ type, name, phone, gstin, city }),
-      });
-      const data = await res.json();
-      if (data.ok) {
-        onClose();
-        router.refresh();
-      } else {
-        alert(data.error || "Failed");
-      }
+      const db = await getLocalDb();
+      await db.update(parties).set({
+        type,
+        name,
+        phone: phone || null,
+        gstin: gstin || null,
+        city: city || null,
+      }).where(eq(parties.id, party.id));
+
+      onClose();
+      window.location.reload();
+    } catch (e) {
+      alert("Failed to save changes");
+      console.error(e);
     } finally { setSaving(false); }
   }
 

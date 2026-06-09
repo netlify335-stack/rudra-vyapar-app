@@ -1,11 +1,11 @@
 "use client";
 import { useState } from "react";
-import { useRouter } from "next/navigation";
+import { getLocalDb } from "@/db/local";
+import { expenses } from "@/db/schema";
 
 const CATEGORIES = ["Rent", "Electricity", "Transport", "Staff Salary", "Packing", "Internet/Mobile", "Maintenance", "Misc"];
 
-export function AddExpenseForm() {
-  const router = useRouter();
+export function AddExpenseForm({ storeId, onSuccess }: { storeId: string, onSuccess: () => void }) {
   const [open, setOpen] = useState(false);
   const [category, setCategory] = useState("Rent");
   const [amount, setAmount] = useState("");
@@ -17,14 +17,18 @@ export function AddExpenseForm() {
     if (!amount) return;
     setSaving(true);
     try {
-      await fetch("/api/expenses", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ category, amount: Number(amount), description, paymentMode }),
+      const db = await getLocalDb();
+      await db.insert(expenses).values({
+        storeId,
+        category,
+        amount: String(Number(amount)),
+        description,
+        paymentMode,
+        expenseDate: new Date().toISOString().split("T")[0],
       });
       setAmount(""); setDescription("");
       setOpen(false);
-      router.refresh();
+      onSuccess();
     } finally { setSaving(false); }
   }
 

@@ -2,40 +2,56 @@
 import { useState, useEffect } from "react";
 import { Trash2 } from "lucide-react";
 
-export function ManageExtrasModal({ open, onClose }: { open: boolean; onClose: () => void }) {
+import { getLocalDb } from "@/db/local";
+import { storeExtras as schemaExtras } from "@/db/schema";
+import { eq, and } from "drizzle-orm";
+
+export function ManageExtrasModal({ open, storeId, onClose }: { open: boolean; storeId: string; onClose: () => void }) {
   const [extras, setExtras] = useState<any[]>([]);
-  const [newName, setNewName] = useState("");
-  const [type, setType] = useState("color"); // color, size, material
+  const [type, setType] = useState<"color"|"size"|"material">("color");
+  const [name, setName] = useState("");
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
     if (open) fetchExtras();
-  }, [open, type]);
+  }, [open, storeId]);
 
   async function fetchExtras() {
-    const res = await fetch(`/api/store-extras?type=${type}`);
-    if (res.ok) setExtras(await res.json());
+    const db = await getLocalDb();
+    const res = await db.select().from(schemaExtras).where(eq(schemaExtras.storeId, storeId));
+    setExtras(res.filter(e => e.type === type));
   }
 
+  useEffect(() => {
+    fetchExtras();
+  }, [type]);
+
   async function add() {
-    if (!newName) return;
+    if (!name) return;
     setLoading(true);
-    const res = await fetch("/api/store-extras", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name: newName, type }),
-    });
-    setLoading(false);
-    if (res.ok) {
-      setNewName("");
+    try {
+      const db = await getLocalDb();
+      await db.insert(schemaExtras).values({ storeId, type, name });
+      setName("");
       fetchExtras();
+    } catch(e) {
+      console.error(e);
+      alert("Failed to add extra");
+    } finally {
+      setLoading(false);
     }
   }
 
   async function remove(id: string) {
-    if (!confirm("Delete this extra?")) return;
-    const res = await fetch(`/api/store-extras?id=${id}`, { method: "DELETE" });
-    if (res.ok) fetchExtras();
+    if (!confirm("Delete this variant option?")) return;
+    try {
+      const db = await getLocalDb();
+      await db.delete(schemaExtras).where(and(eq(schemaExtras.id, id), eq(schemaExtras.storeId, storeId)));
+      fetchExtras();
+    } catch(e) {
+      console.error(e);
+      alert("Failed to delete extra");
+    }
   }
 
   if (!open) return null;
@@ -56,14 +72,14 @@ export function ManageExtrasModal({ open, onClose }: { open: boolean; onClose: (
 
         <div className="mb-4 flex gap-2">
           <input
-            value={newName}
-            onChange={(e) => setNewName(e.target.value)}
+            value={name}
+            onChange={(e) => setName(e.target.value)}
             placeholder={`New ${type} name`}
             className="flex-1 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm outline-none focus:border-orange-400"
           />
           <button 
             onClick={add} 
-            disabled={loading || !newName}
+            disabled={loading || !name}
             className="rounded-xl bg-orange-600 px-4 py-2 text-sm font-bold text-white hover:bg-orange-700 disabled:opacity-50"
           >
             Add

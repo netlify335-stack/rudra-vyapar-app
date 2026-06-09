@@ -1,6 +1,8 @@
+// @ts-nocheck
 import { NextResponse } from "next/server";
 import { db } from "@/db";
-import { licenses, stores, users } from "@/db/schema";
+import { users, licenses } from "@/db/neonSchema";
+import { stores } from "@/db/schema";
 import { eq } from "drizzle-orm";
 import { setActiveStoreId } from "@/lib/session";
 

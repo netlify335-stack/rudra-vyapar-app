@@ -1,8 +1,10 @@
 "use client";
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { getLocalDb } from "@/db/local";
+import { parties } from "@/db/schema";
 
-export function AddPartyForm() {
+export function AddPartyForm({ storeId }: { storeId: string }) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [type, setType] = useState<"customer" | "supplier">("customer");
@@ -16,19 +18,27 @@ export function AddPartyForm() {
     if (!name) return;
     setSaving(true);
     try {
-      const res = await fetch("/api/parties", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ type, name, phone, gstin, city }),
+      const db = await getLocalDb();
+      await db.insert(parties).values({
+        storeId,
+        type,
+        name,
+        phone: phone || null,
+        gstin: gstin || null,
+        city: city || null,
       });
-      const data = await res.json();
-      if (data.ok) {
-        setName(""); setPhone(""); setGstin(""); setCity("");
-        setOpen(false);
-        router.refresh();
-      } else {
-        alert(data.error || "Failed");
-      }
+
+      setName(""); setPhone(""); setGstin(""); setCity("");
+      setOpen(false);
+      // Removed router.refresh() because Client Component will re-fetch automatically if we trigger a re-render or if useLocalDbQuery polls, but actually useLocalDbQuery doesn't poll.
+      // To force a refresh of useLocalDbQuery, we can reload or use a simpler trick.
+      // For now, let's just do a window.location.reload() or router.refresh() if needed.
+      // Actually router.refresh() doesn't re-run Client Components' data fetching unless it's Server data.
+      // Let's just do window.location.reload() to be safe and simple for this offline refactor.
+      window.location.reload();
+    } catch(e) {
+      alert("Failed to save party");
+      console.error(e);
     } finally { setSaving(false); }
   }
 

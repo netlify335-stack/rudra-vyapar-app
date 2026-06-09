@@ -2,39 +2,51 @@
 import { useState, useEffect } from "react";
 import { Trash2 } from "lucide-react";
 
-export function ManageCategoriesModal({ open, onClose }: { open: boolean; onClose: () => void }) {
+import { getLocalDb } from "@/db/local";
+import { categories as schemaCategories } from "@/db/schema";
+import { eq, and } from "drizzle-orm";
+
+export function ManageCategoriesModal({ open, storeId, onClose }: { open: boolean; storeId: string; onClose: () => void }) {
   const [categories, setCategories] = useState<any[]>([]);
   const [newName, setNewName] = useState("");
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
     if (open) fetchCategories();
-  }, [open]);
+  }, [open, storeId]);
 
   async function fetchCategories() {
-    const res = await fetch("/api/categories");
-    if (res.ok) setCategories(await res.json());
+    const db = await getLocalDb();
+    const res = await db.select().from(schemaCategories).where(eq(schemaCategories.storeId, storeId));
+    setCategories(res);
   }
 
   async function add() {
     if (!newName) return;
     setLoading(true);
-    const res = await fetch("/api/categories", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name: newName }),
-    });
-    setLoading(false);
-    if (res.ok) {
+    try {
+      const db = await getLocalDb();
+      await db.insert(schemaCategories).values({ storeId, name: newName });
       setNewName("");
       fetchCategories();
+    } catch(e) {
+      console.error(e);
+      alert("Failed to add category");
+    } finally {
+      setLoading(false);
     }
   }
 
   async function remove(id: string) {
     if (!confirm("Delete this category?")) return;
-    const res = await fetch(`/api/categories?id=${id}`, { method: "DELETE" });
-    if (res.ok) fetchCategories();
+    try {
+      const db = await getLocalDb();
+      await db.delete(schemaCategories).where(and(eq(schemaCategories.id, id), eq(schemaCategories.storeId, storeId)));
+      fetchCategories();
+    } catch(e) {
+      console.error(e);
+      alert("Failed to delete category");
+    }
   }
 
   if (!open) return null;

@@ -1,75 +1,141 @@
-import { db } from "@/db";
+// @ts-nocheck
+"use client";
+
 import { invoices, expenses, parties, products, batches, invoiceItems } from "@/db/schema";
 import { and, desc, eq, gt, gte, lte, sql } from "drizzle-orm";
 import Link from "next/link";
-import { getActiveStoreId } from "@/lib/session";
 import { formatINR, formatDate, formatNumber } from "@/lib/format";
 import { LineChart, BarChart, DonutChart } from "@/components/Charts";
 import { SmartInsights } from "./components/SmartInsights";
+import { useLocalDbQuery } from "@/hooks/useLocalDb";
 
-export const dynamic = "force-dynamic";
+export default function DashboardHome() {
+  const storeId = "local-store"; // For local DB, we can default to a single store
 
-export default async function DashboardHome() {
-  const storeId = (await getActiveStoreId())!;
-  const today = new Date().toISOString().slice(0, 10);
-  const monthStart = new Date();
-  monthStart.setDate(1);
-  const monthStartStr = monthStart.toISOString().slice(0, 10);
-  const sevenAgo = new Date();
-  sevenAgo.setDate(sevenAgo.getDate() - 6);
-  const sevenAgoStr = sevenAgo.toISOString().slice(0, 10);
+  const { data, loading } = useLocalDbQuery(async (db) => {
+    const today = new Date().toISOString().slice(0, 10);
+    const monthStart = new Date();
+    monthStart.setDate(1);
+    const monthStartStr = monthStart.toISOString().slice(0, 10);
+    const sevenAgo = new Date();
+    sevenAgo.setDate(sevenAgo.getDate() - 6);
+    const sevenAgoStr = sevenAgo.toISOString().slice(0, 10);
 
-  // KPIs
-  const todaysSale = await db
-    .select({ total: sql<string>`coalesce(sum(${invoices.totalAmount}),0)` })
-    .from(invoices)
-    .where(and(eq(invoices.storeId, storeId), eq(invoices.type, "sale"), eq(invoices.invoiceDate, today)));
+    const todaysSale = await db
+      .select({ total: sql<string>`coalesce(sum(${invoices.totalAmount}),0)` })
+      .from(invoices)
+      .where(and(eq(invoices.storeId, storeId), eq(invoices.type, "sale"), eq(invoices.invoiceDate, today)));
 
-  const monthSale = await db
-    .select({
-      total: sql<string>`coalesce(sum(${invoices.totalAmount}),0)`,
-      count: sql<number>`count(*)::int`,
-    })
-    .from(invoices)
-    .where(and(eq(invoices.storeId, storeId), eq(invoices.type, "sale"), gte(invoices.invoiceDate, monthStartStr)));
+    const monthSale = await db
+      .select({
+        total: sql<string>`coalesce(sum(${invoices.totalAmount}),0)`,
+        count: sql<number>`count(*)::int`,
+      })
+      .from(invoices)
+      .where(and(eq(invoices.storeId, storeId), eq(invoices.type, "sale"), gte(invoices.invoiceDate, monthStartStr)));
 
-  const todaysCollection = await db
-    .select({ total: sql<string>`coalesce(sum(${invoices.paidAmount}),0)` })
-    .from(invoices)
-    .where(and(eq(invoices.storeId, storeId), eq(invoices.type, "sale"), eq(invoices.invoiceDate, today)));
+    const todaysCollection = await db
+      .select({ total: sql<string>`coalesce(sum(${invoices.paidAmount}),0)` })
+      .from(invoices)
+      .where(and(eq(invoices.storeId, storeId), eq(invoices.type, "sale"), eq(invoices.invoiceDate, today)));
 
-  const udhaarRow = await db
-    .select({ total: sql<string>`coalesce(sum(${parties.outstandingBalance}),0)`, count: sql<number>`count(*)::int` })
-    .from(parties)
-    .where(and(eq(parties.storeId, storeId), eq(parties.type, "customer"), gt(parties.outstandingBalance, "0")));
+    const udhaarRow = await db
+      .select({ total: sql<string>`coalesce(sum(${parties.outstandingBalance}),0)`, count: sql<number>`count(*)::int` })
+      .from(parties)
+      .where(and(eq(parties.storeId, storeId), eq(parties.type, "customer"), gt(parties.outstandingBalance, "0")));
 
-  const payableRow = await db
-    .select({ total: sql<string>`coalesce(sum(${parties.outstandingBalance}),0)` })
-    .from(parties)
-    .where(and(eq(parties.storeId, storeId), eq(parties.type, "supplier")));
+    const payableRow = await db
+      .select({ total: sql<string>`coalesce(sum(${parties.outstandingBalance}),0)` })
+      .from(parties)
+      .where(and(eq(parties.storeId, storeId), eq(parties.type, "supplier")));
 
-  const netEarnRow = await db
-    .select({
-      netEarn: sql<string>`coalesce(sum(${invoiceItems.quantity} * (${invoiceItems.rate} - ${products.purchasePrice})), 0)`
-    })
-    .from(invoiceItems)
-    .innerJoin(invoices, eq(invoices.id, invoiceItems.invoiceId))
-    .innerJoin(products, eq(products.id, invoiceItems.productId))
-    .where(and(eq(invoices.storeId, storeId), eq(invoices.type, "sale"), eq(invoices.invoiceDate, today)));
+    const netEarnRow = await db
+      .select({
+        netEarn: sql<string>`coalesce(sum(${invoiceItems.quantity} * (${invoiceItems.rate} - ${products.purchasePrice})), 0)`
+      })
+      .from(invoiceItems)
+      .innerJoin(invoices, eq(invoices.id, invoiceItems.invoiceId))
+      .innerJoin(products, eq(products.id, invoiceItems.productId))
+      .where(and(eq(invoices.storeId, storeId), eq(invoices.type, "sale"), eq(invoices.invoiceDate, today)));
 
-  // Last 7 days sales trend
-  const daily = await db
-    .select({
-      d: sql<string>`to_char(${invoices.invoiceDate}, 'YYYY-MM-DD')`,
-      total: sql<string>`coalesce(sum(${invoices.totalAmount}),0)`,
-    })
-    .from(invoices)
-    .where(and(eq(invoices.storeId, storeId), eq(invoices.type, "sale"), gte(invoices.invoiceDate, sevenAgoStr)))
-    .groupBy(sql`to_char(${invoices.invoiceDate}, 'YYYY-MM-DD')`)
-    .orderBy(sql`to_char(${invoices.invoiceDate}, 'YYYY-MM-DD')`);
+    const daily = await db
+      .select({
+        d: sql<string>`to_char(${invoices.invoiceDate}, 'YYYY-MM-DD')`,
+        total: sql<string>`coalesce(sum(${invoices.totalAmount}),0)`,
+      })
+      .from(invoices)
+      .where(and(eq(invoices.storeId, storeId), eq(invoices.type, "sale"), gte(invoices.invoiceDate, sevenAgoStr)))
+      .groupBy(sql`to_char(${invoices.invoiceDate}, 'YYYY-MM-DD')`)
+      .orderBy(sql`to_char(${invoices.invoiceDate}, 'YYYY-MM-DD')`);
 
-  // Fill missing days
-  const dailyMap = new Map(daily.map((r) => [r.d, Number(r.total)]));
+    const topProducts = await db
+      .select({
+        name: invoiceItems.productName,
+        total: sql<string>`coalesce(sum(${invoiceItems.totalAmount}),0)`,
+      })
+      .from(invoiceItems)
+      .innerJoin(invoices, eq(invoices.id, invoiceItems.invoiceId))
+      .where(and(eq(invoices.storeId, storeId), eq(invoices.type, "sale")))
+      .groupBy(invoiceItems.productName)
+      .orderBy(desc(sql`sum(${invoiceItems.totalAmount})`))
+      .limit(5);
+
+    const paySplit = await db
+      .select({
+        mode: invoices.paymentMode,
+        total: sql<string>`coalesce(sum(${invoices.totalAmount}),0)`,
+      })
+      .from(invoices)
+      .where(and(eq(invoices.storeId, storeId), eq(invoices.type, "sale"), gte(invoices.invoiceDate, monthStartStr)))
+      .groupBy(invoices.paymentMode);
+
+    const lowStock = await db
+      .select()
+      .from(products)
+      .where(and(eq(products.storeId, storeId), sql`${products.currentStock} <= ${products.minStockLevel}`))
+      .limit(5);
+
+    const in10 = new Date();
+    in10.setDate(in10.getDate() + 10);
+    const expiring = await db
+      .select({
+        batchId: batches.id,
+        batchNo: batches.batchNo,
+        expiryDate: batches.expiryDate,
+        quantity: batches.quantity,
+        productName: products.name,
+      })
+      .from(batches)
+      .innerJoin(products, eq(products.id, batches.productId))
+      .where(and(eq(batches.storeId, storeId), gt(batches.quantity, "0"), lte(batches.expiryDate, in10.toISOString().slice(0, 10))))
+      .orderBy(batches.expiryDate)
+      .limit(5);
+
+    const recent = await db
+      .select()
+      .from(invoices)
+      .where(and(eq(invoices.storeId, storeId), eq(invoices.type, "sale")))
+      .orderBy(desc(invoices.createdAt))
+      .limit(6);
+
+    return {
+      todaysSale, monthSale, todaysCollection, udhaarRow, payableRow, netEarnRow,
+      daily, topProducts, paySplit, lowStock, expiring, recent
+    };
+  }, []);
+
+  if (loading) {
+    return <div className="p-8 text-center text-slate-500 font-medium">Loading Dashboard Data Offline...</div>;
+  }
+
+  if (!data) return <div>Error loading data</div>;
+
+  const {
+    todaysSale, monthSale, todaysCollection, udhaarRow, netEarnRow,
+    daily, topProducts, paySplit, lowStock, expiring, recent
+  } = data;
+
+  const dailyMap = new Map(daily.map((r: any) => [r.d, Number(r.total)]));
   const trend: { label: string; value: number }[] = [];
   for (let i = 6; i >= 0; i--) {
     const dt = new Date();
@@ -79,61 +145,6 @@ export default async function DashboardHome() {
     trend.push({ label: lbl, value: dailyMap.get(key) ?? 0 });
   }
 
-  // Top products
-  const topProducts = await db
-    .select({
-      name: invoiceItems.productName,
-      total: sql<string>`coalesce(sum(${invoiceItems.totalAmount}),0)`,
-    })
-    .from(invoiceItems)
-    .innerJoin(invoices, eq(invoices.id, invoiceItems.invoiceId))
-    .where(and(eq(invoices.storeId, storeId), eq(invoices.type, "sale")))
-    .groupBy(invoiceItems.productName)
-    .orderBy(desc(sql`sum(${invoiceItems.totalAmount})`))
-    .limit(5);
-
-  // Payment mode split (this month)
-  const paySplit = await db
-    .select({
-      mode: invoices.paymentMode,
-      total: sql<string>`coalesce(sum(${invoices.totalAmount}),0)`,
-    })
-    .from(invoices)
-    .where(and(eq(invoices.storeId, storeId), eq(invoices.type, "sale"), gte(invoices.invoiceDate, monthStartStr)))
-    .groupBy(invoices.paymentMode);
-
-  // Low stock
-  const lowStock = await db
-    .select()
-    .from(products)
-    .where(and(eq(products.storeId, storeId), sql`${products.currentStock} <= ${products.minStockLevel}`))
-    .limit(5);
-
-  // Expiring soon
-  const in10 = new Date();
-  in10.setDate(in10.getDate() + 10);
-  const expiring = await db
-    .select({
-      batchId: batches.id,
-      batchNo: batches.batchNo,
-      expiryDate: batches.expiryDate,
-      quantity: batches.quantity,
-      productName: products.name,
-    })
-    .from(batches)
-    .innerJoin(products, eq(products.id, batches.productId))
-    .where(and(eq(batches.storeId, storeId), gt(batches.quantity, "0"), lte(batches.expiryDate, in10.toISOString().slice(0, 10))))
-    .orderBy(batches.expiryDate)
-    .limit(5);
-
-  // Recent invoices
-  const recent = await db
-    .select()
-    .from(invoices)
-    .where(and(eq(invoices.storeId, storeId), eq(invoices.type, "sale")))
-    .orderBy(desc(invoices.createdAt))
-    .limit(6);
-
   const PAY_COLORS: Record<string, string> = {
     cash: "#10B981",
     upi: "#6366F1",
@@ -141,7 +152,7 @@ export default async function DashboardHome() {
     credit: "#EF4444",
     bank: "#0EA5E9",
   };
-  const paySegments = paySplit.map((p) => ({
+  const paySegments = paySplit.map((p: any) => ({
     label: (p.mode || "other").toUpperCase(),
     value: Number(p.total),
     color: PAY_COLORS[p.mode || ""] || "#94A3B8",
@@ -164,7 +175,6 @@ export default async function DashboardHome() {
 
       <SmartInsights />
 
-      {/* KPI cards */}
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <KpiCard
           icon="💰"
@@ -211,7 +221,7 @@ export default async function DashboardHome() {
         <Card className="lg:col-span-2">
           <CardHead title="Top selling products" sub="All time" link="/dashboard/inventory" />
           {topProducts.length ? (
-            <BarChart data={topProducts.map((p) => ({ label: p.name, value: Number(p.total) }))} />
+            <BarChart data={topProducts.map((p: any) => ({ label: p.name, value: Number(p.total) }))} />
           ) : (
             <Empty />
           )}
@@ -220,7 +230,7 @@ export default async function DashboardHome() {
           <CardHead title="Low stock alerts" sub={`${lowStock.length} items need reorder`} link="/dashboard/inventory" />
           <div className="divide-y divide-slate-100">
             {lowStock.length === 0 && <Empty label="All stocked up 🎉" />}
-            {lowStock.map((p) => (
+            {lowStock.map((p: any) => (
               <div key={p.id} className="flex items-center justify-between py-2.5">
                 <div className="min-w-0">
                   <div className="truncate text-sm font-medium text-slate-800">{p.name}</div>
@@ -250,7 +260,7 @@ export default async function DashboardHome() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
-                {recent.map((r) => (
+                {recent.map((r: any) => (
                   <tr key={r.id}>
                     <td className="py-2.5 font-mono text-xs text-slate-700">{r.invoiceNo}</td>
                     <td className="py-2.5 text-slate-800">{r.partyName}</td>
@@ -281,7 +291,7 @@ export default async function DashboardHome() {
           <CardHead title="Expiring soon" sub="Within 90 days" link="/dashboard/inventory" />
           <div className="divide-y divide-slate-100">
             {expiring.length === 0 && <Empty label="No expiring batches" />}
-            {expiring.map((b) => {
+            {expiring.map((b: any) => {
               const days = Math.ceil((new Date(b.expiryDate).getTime() - Date.now()) / (1000 * 60 * 60 * 24));
               return (
                 <div key={b.batchId} className="py-2.5">

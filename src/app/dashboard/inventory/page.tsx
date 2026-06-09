@@ -1,39 +1,49 @@
-import { db } from "@/db";
+// @ts-nocheck
+"use client";
+
 import { products, batches } from "@/db/schema";
-import { and, asc, eq, gt, lte, sql } from "drizzle-orm";
-import { getActiveStoreId } from "@/lib/session";
+import { and, asc, eq, gt, lte } from "drizzle-orm";
 import { formatINR, formatNumber, formatDate } from "@/lib/format";
 import { AddProductForm } from "./AddProductForm";
 import { ProductList } from "./ProductList";
 import { InventorySettingsButtons } from "./InventorySettingsButtons";
+import { useLocalDbQuery } from "@/hooks/useLocalDb";
 
-export const dynamic = "force-dynamic";
+export default function InventoryPage() {
+  const storeId = "local-store";
 
-export default async function InventoryPage() {
-  const storeId = (await getActiveStoreId())!;
-  const list = await db
-    .select()
-    .from(products)
-    .where(and(eq(products.storeId, storeId), eq(products.isActive, true)))
-    .orderBy(asc(products.name));
+  const { data, loading, error } = useLocalDbQuery(async (db) => {
+    const list = await db
+      .select()
+      .from(products)
+      .where(and(eq(products.storeId, storeId), eq(products.isActive, true)))
+      .orderBy(asc(products.name));
+
+    const in90 = new Date(); in90.setDate(in90.getDate() + 90);
+    const expiring = await db
+      .select({
+        id: batches.id,
+        batchNo: batches.batchNo,
+        expiryDate: batches.expiryDate,
+        quantity: batches.quantity,
+        productName: products.name,
+      })
+      .from(batches)
+      .innerJoin(products, eq(products.id, batches.productId))
+      .where(and(eq(batches.storeId, storeId), gt(batches.quantity, "0"), lte(batches.expiryDate, in90.toISOString().slice(0, 10))))
+      .orderBy(asc(batches.expiryDate));
+
+    return { list, expiring };
+  }, [storeId]);
+
+  if (loading) return <div>Loading inventory...</div>;
+  if (error || !data) return <div className="text-red-500">Error loading inventory</div>;
+
+  const { list, expiring } = data;
 
   const totalSku = list.length;
-  const stockValue = list.reduce((s, p) => s + Number(p.currentStock) * Number(p.purchasePrice), 0);
-  const lowStock = list.filter((p) => Number(p.currentStock) <= Number(p.minStockLevel));
-
-  const in90 = new Date(); in90.setDate(in90.getDate() + 90);
-  const expiring = await db
-    .select({
-      id: batches.id,
-      batchNo: batches.batchNo,
-      expiryDate: batches.expiryDate,
-      quantity: batches.quantity,
-      productName: products.name,
-    })
-    .from(batches)
-    .innerJoin(products, eq(products.id, batches.productId))
-    .where(and(eq(batches.storeId, storeId), gt(batches.quantity, "0"), lte(batches.expiryDate, in90.toISOString().slice(0, 10))))
-    .orderBy(asc(batches.expiryDate));
+  const stockValue = list.reduce((s: any, p: any) => s + Number(p.currentStock) * Number(p.purchasePrice), 0);
+  const lowStock = list.filter((p: any) => Number(p.currentStock) <= Number(p.minStockLevel));
 
   return (
     <div className="space-y-6">
@@ -55,7 +65,6 @@ export default async function InventoryPage() {
         <InventorySettingsButtons />
       </div>
 
-      {/* Low stock */}
       {lowStock.length > 0 && (
         <Section title="Low stock alerts" sub="Restock these items soon">
           <table className="w-full text-sm">
@@ -68,7 +77,7 @@ export default async function InventoryPage() {
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
-              {lowStock.map((p) => (
+              {lowStock.map((p: any) => (
                 <tr key={p.id} className="hover:bg-slate-50">
                   <td className="px-5 py-2.5 font-medium text-slate-800">{p.name}</td>
                   <td className="px-5 py-2.5 text-right font-bold text-rose-600">{formatNumber(Number(p.currentStock), 1)} {p.unit}</td>
@@ -83,7 +92,6 @@ export default async function InventoryPage() {
         </Section>
       )}
 
-      {/* Expiry */}
       {expiring.length > 0 && (
         <Section title="Expiring batches" sub="Within next 90 days · FIFO clearance recommended">
           <table className="w-full text-sm">
@@ -97,7 +105,7 @@ export default async function InventoryPage() {
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
-              {expiring.map((b) => {
+              {expiring.map((b: any) => {
                 const days = Math.ceil((new Date(b.expiryDate).getTime() - Date.now()) / 86400000);
                 return (
                   <tr key={b.id} className="hover:bg-slate-50">

@@ -16,17 +16,19 @@ export function SettingsForm({ store }: { store: any }) {
   const handleSave = async () => {
     setIsSaving(true);
     setMessage("");
-    const res = await fetch("/api/settings", {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(formData),
-    });
-    setIsSaving(false);
-    if (res.ok) {
+    try {
+      const { getLocalDb } = await import("@/db/local");
+      const { stores } = await import("@/db/schema");
+      const { eq } = await import("drizzle-orm");
+      const db = await getLocalDb();
+
+      await db.update(stores).set(formData).where(eq(stores.id, store.id));
       setMessage("Settings saved successfully!");
       router.refresh();
-    } else {
+    } catch (err: any) {
       setMessage("Failed to save settings.");
+    } finally {
+      setIsSaving(false);
     }
   };
 

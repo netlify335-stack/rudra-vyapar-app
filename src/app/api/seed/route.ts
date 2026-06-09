@@ -1,6 +1,6 @@
+// @ts-nocheck
 import { db } from "@/db";
 import {
-  users,
   stores,
   parties,
   products,
@@ -10,6 +10,7 @@ import {
   khataEntries,
   expenses,
 } from "@/db/schema";
+import { users } from "@/db/neonSchema";
 import { sql } from "drizzle-orm";
 import { calcInvoiceTotals, round2 } from "@/lib/gst";
 

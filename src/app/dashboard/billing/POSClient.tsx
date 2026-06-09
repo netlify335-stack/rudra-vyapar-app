@@ -2,6 +2,10 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { formatINR } from "@/lib/format";
+import { getLocalDb } from "@/db/local";
+import { invoices, invoiceItems, products as productsTable, productVariants, parties, stores, khataEntries, batches } from "@/db/schema";
+import { calcInvoiceTotals, round2 } from "@/lib/gst";
+import { eq, sql, and } from "drizzle-orm";
 
 type Product = {
   id: string;
@@ -33,7 +37,7 @@ type CartLine = {
   gstRate: number;
 };
 
-export function POSClient({ products, customers, isPurchase = false, storeName }: { products: Product[]; customers: Customer[]; isPurchase?: boolean; storeName: string }) {
+export function POSClient({ products, customers, isPurchase = false, storeName, storeId }: { products: Product[]; customers: Customer[]; isPurchase?: boolean; storeName: string; storeId: string }) {
   const router = useRouter();
   const [query, setQuery] = useState("");
   const [cart, setCart] = useState<CartLine[]>([]);
@@ -155,6 +159,7 @@ export function POSClient({ products, customers, isPurchase = false, storeName }
     if (!cart.length) return;
     setSaving(true);
     try {
+      const type = isPurchase ? "purchase" : (action === "estimate" ? "estimate" : "sale");
       const partyId = customerId === "walkin" ? null : customerId;
       const selectedCustomer = customers.find((c) => c.id === customerId);
       const partyName = customerId === "walkin"
@@ -162,70 +167,231 @@ export function POSClient({ products, customers, isPurchase = false, storeName }
         : selectedCustomer?.name ?? (isPurchase ? "Supplier" : "Customer");
       const partyPhone = customerId === "walkin" ? walkinPhone.trim() : (selectedCustomer?.phone ?? "");
       const partyAddress = customerId === "walkin" ? walkinAddress.trim() : (selectedCustomer?.address ?? "");
+      const partyGstin = customerId === "walkin" ? "" : (selectedCustomer?.gstin ?? "");
       
       const finalSplitAmt1 = Number(splitAmount1) || 0;
       const finalSplitAmt2 = totals.total - finalSplitAmt1;
 
-      const res = await fetch("/api/invoices", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          type: isPurchase ? "purchase" : (action === "estimate" ? "estimate" : "sale"),
-          partyId: customerId === "walkin" ? null : customerId,
+      const db = await getLocalDb();
+
+      const invoiceTotals = calcInvoiceTotals({
+        items: cart.map((it) => ({
+          rate: it.rate,
+          quantity: it.quantity,
+          discountPercent: it.discountPercent ?? 0,
+          gstRate: it.gstRate,
+        })),
+        isIgst: false,
+      });
+
+      // Generate invoice number
+      const [store] = await db.select().from(stores).where(eq(stores.id, storeId)).limit(1);
+      const next = (store?.invoiceCounter ?? 1);
+      const prefix = store?.invoicePrefix ?? "INV";
+      const invoiceNo = `${prefix}-${String(next).padStart(5, "0")}`;
+      await db.update(stores).set({ invoiceCounter: next + 1 }).where(eq(stores.id, storeId));
+
+      let paid = 0;
+      let balance = 0;
+      let creditAmount = 0;
+
+      if (paymentMode === "credit") {
+        paid = 0;
+        balance = invoiceTotals.totalAmount;
+        creditAmount = invoiceTotals.totalAmount;
+      } else if (paymentMode === "partial") {
+        const sM1 = splitMode1;
+        const sA1 = finalSplitAmt1;
+        const sM2 = splitMode2;
+        const sA2 = finalSplitAmt2;
+
+        if (sM1 === "credit") creditAmount += sA1;
+        else paid += sA1;
+
+        if (sM2 === "credit") creditAmount += sA2;
+        else paid += sA2;
+
+        balance = creditAmount;
+      } else {
+        paid = invoiceTotals.totalAmount;
+        balance = 0;
+      }
+
+      paid = round2(paid);
+      balance = round2(balance);
+
+      const [inv] = await db
+        .insert(invoices)
+        .values({
+          storeId,
+          invoiceNo,
+          type,
+          status: "confirmed",
+          partyId,
           partyName,
           partyPhone,
+          partyGstin,
           partyAddress,
+          invoiceDate: new Date().toISOString().slice(0, 10),
+          isIgst: false,
+          subtotal: String(invoiceTotals.subtotal),
+          discountAmount: String(invoiceTotals.discountAmount),
+          taxableAmount: String(invoiceTotals.taxableAmount),
+          cgstAmount: String(invoiceTotals.cgstAmount),
+          sgstAmount: String(invoiceTotals.sgstAmount),
+          igstAmount: String(invoiceTotals.igstAmount),
+          totalAmount: String(invoiceTotals.totalAmount),
+          paidAmount: String(paid),
+          balanceDue: String(balance),
           paymentMode,
-          splitPaymentMode1: paymentMode === "partial" ? splitMode1 : undefined,
-          splitAmount1: paymentMode === "partial" ? finalSplitAmt1 : undefined,
-          splitPaymentMode2: paymentMode === "partial" ? splitMode2 : undefined,
-          splitAmount2: paymentMode === "partial" ? finalSplitAmt2 : undefined,
+          splitPaymentMode1: paymentMode === "partial" ? splitMode1 : null,
+          splitAmount1: paymentMode === "partial" ? String(finalSplitAmt1) : null,
+          splitPaymentMode2: paymentMode === "partial" ? splitMode2 : null,
+          splitAmount2: paymentMode === "partial" ? String(finalSplitAmt2) : null,
           notes,
-          items: cart,
-        }),
-      });
-      const data = await res.json();
-      if (data.ok) {
-        setSavedInvoiceNo(data.invoiceNo);
-        setCart([]);
-        setNotes("");
-        setWalkinName("");
-        setWalkinPhone("");
-        setWalkinAddress("");
-        
-        const amount = totals.total;
-        const paymentText = paymentMode.charAt(0).toUpperCase() + paymentMode.slice(1);
-        const msg = encodeURIComponent(
-          `Hello ${partyName},\nYour invoice ${data.invoiceNo} for ${formatINR(amount)} from ${storeName} is ready.\nPayment Mode: ${paymentText}\nThank you! 🙏`
-        );
-        
-        if (action === "print" || includePdf) {
-          if (isPurchase) {
-            // Stay on page
-          } else {
-            const newTab = window.open(`/dashboard/invoices/${data.invoiceId}?print=true`, "_blank");
-            if (!newTab) alert("Popup blocked! Please allow popups to open the PDF automatically.");
-          }
-        } else if (action === "whatsapp") {
-          const waNum = partyPhone.replace(/[^0-9]/g, "").replace(/^91/, "");
-          const waLink = waNum ? `https://wa.me/91${waNum}?text=${msg}` : `https://wa.me/?text=${msg}`;
-          const newTab = window.open(waLink, "_blank");
-          if (!newTab) window.location.href = waLink;
-        } else if (action === "sms") {
-          const smsNum = partyPhone.replace(/[^0-9]/g, "").replace(/^91/, "");
-          const smsLink = `sms:${smsNum}?body=${msg}`;
-          window.location.href = smsLink;
-        }
+        })
+        .returning();
 
-        if (action === "save") {
-            // Just refresh data
-            router.refresh();
-        } else if (action === "whatsapp" || action === "sms") {
-           router.refresh();
+      // Insert items + update stock
+      for (const it of cart) {
+        const gross = it.rate * it.quantity;
+        const disc = (gross * (it.discountPercent ?? 0)) / 100;
+        const tx = gross - disc;
+        const tax = (tx * it.gstRate) / 100;
+        
+        await db.insert(invoiceItems).values({
+          invoiceId: inv.id,
+          productId: it.productId,
+          variantId: it.variantId ?? null,
+          productName: it.name,
+          variantName: it.variantName ?? null,
+          hsnCode: it.hsnCode ?? null,
+          quantity: String(it.quantity),
+          unit: it.unit ?? "PCS",
+          rate: String(it.rate),
+          discountPercent: String(it.discountPercent ?? 0),
+          taxableAmount: String(round2(tx)),
+          gstRate: String(it.gstRate),
+          taxAmount: String(round2(tax)),
+          totalAmount: String(round2(tx + tax)),
+        });
+        
+        // Stock management
+        if (type === "sale") {
+          if (it.variantId) {
+            await db
+              .update(productVariants)
+              .set({ currentStock: sql`${productVariants.currentStock} - ${it.quantity}` })
+              .where(eq(productVariants.id, it.variantId));
+          } else {
+            await db
+              .update(productsTable)
+              .set({ currentStock: sql`${productsTable.currentStock} - ${it.quantity}` })
+              .where(eq(productsTable.id, it.productId));
+          }
+
+          // FEFO Logic for Batches
+          const availableBatches = await db.select()
+            .from(batches)
+            .where(and(
+              eq(batches.productId, it.productId),
+              sql`${batches.quantity} > 0`
+            ))
+            .orderBy(batches.expiryDate);
+
+          let remainingToDeduct = it.quantity;
+          for (const b of availableBatches) {
+            if (remainingToDeduct <= 0) break;
+            const bQty = Number(b.quantity);
+            const deductAmount = Math.min(bQty, remainingToDeduct);
+            
+            await db.update(batches)
+              .set({ quantity: String(bQty - deductAmount) })
+              .where(eq(batches.id, b.id));
+              
+            remainingToDeduct -= deductAmount;
+          }
+
+        } else if (type === "purchase") {
+          if (it.variantId) {
+            await db
+              .update(productVariants)
+              .set({ currentStock: sql`${productVariants.currentStock} + ${it.quantity}` })
+              .where(eq(productVariants.id, it.variantId));
+          } else {
+            await db
+              .update(productsTable)
+              .set({ currentStock: sql`${productsTable.currentStock} + ${it.quantity}` })
+              .where(eq(productsTable.id, it.productId));
+          }
         }
-      } else {
-        alert(data.error || "Failed to save");
       }
+
+      // Khata + party balance update on credit
+      if (creditAmount > 0 && partyId && type !== "estimate") {
+        const isSale = type === "sale";
+        const paymentNoteStr = paymentMode === "partial" ? " (Partial Udhaar)" : "";
+        
+        await db.insert(khataEntries).values({
+          storeId,
+          partyId,
+          type: "credit",
+          amount: String(creditAmount),
+          notes: isSale ? `Goods sold — ${invoiceNo}${paymentNoteStr}` : `Goods purchased — ${invoiceNo}${paymentNoteStr}`,
+          entryDate: new Date().toISOString().slice(0, 10),
+          invoiceId: inv.id,
+        });
+
+        if (isSale) {
+          await db
+            .update(parties)
+            .set({ outstandingBalance: sql`${parties.outstandingBalance} + ${creditAmount}` })
+            .where(eq(parties.id, partyId));
+        } else {
+          await db
+            .update(parties)
+            .set({ outstandingBalance: sql`${parties.outstandingBalance} - ${creditAmount}` })
+            .where(eq(parties.id, partyId));
+        }
+      }
+
+      setSavedInvoiceNo(invoiceNo);
+      setCart([]);
+      setNotes("");
+      setWalkinName("");
+      setWalkinPhone("");
+      setWalkinAddress("");
+      
+      const amount = totals.total;
+      const paymentText = paymentMode.charAt(0).toUpperCase() + paymentMode.slice(1);
+      const msg = encodeURIComponent(
+        `Hello ${partyName},\nYour invoice ${invoiceNo} for ${formatINR(amount)} from ${storeName} is ready.\nPayment Mode: ${paymentText}\nThank you! 🙏`
+      );
+      
+      if (action === "print" || includePdf) {
+        if (isPurchase) {
+          // Stay on page
+        } else {
+          const newTab = window.open(`/dashboard/invoices/${inv.id}?print=true`, "_blank");
+          if (!newTab) alert("Popup blocked! Please allow popups to open the PDF automatically.");
+        }
+      } else if (action === "whatsapp") {
+        const waNum = partyPhone.replace(/[^0-9]/g, "").replace(/^91/, "");
+        const waLink = waNum ? `https://wa.me/91${waNum}?text=${msg}` : `https://wa.me/?text=${msg}`;
+        const newTab = window.open(waLink, "_blank");
+        if (!newTab) window.location.href = waLink;
+      } else if (action === "sms") {
+        const smsNum = partyPhone.replace(/[^0-9]/g, "").replace(/^91/, "");
+        const smsLink = `sms:${smsNum}?body=${msg}`;
+        window.location.href = smsLink;
+      }
+
+      if (action === "save" || action === "whatsapp" || action === "sms") {
+          window.location.reload();
+      }
+    } catch (err) {
+      console.error(err);
+      alert((err as Error).message || "Failed to save");
     } finally {
       setSaving(false);
     }

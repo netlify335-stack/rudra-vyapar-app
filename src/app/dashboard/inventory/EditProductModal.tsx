@@ -2,9 +2,13 @@
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 
+import { getLocalDb } from "@/db/local";
+import { products } from "@/db/schema";
+import { eq } from "drizzle-orm";
+
 const GST_RATES = [0, 5, 12, 18, 28];
 
-export function EditProductModal({ product, onClose }: { product: any; onClose: () => void }) {
+export function EditProductModal({ product, storeId, onClose }: { product: any; storeId: string; onClose: () => void }) {
   const router = useRouter();
   const [form, setForm] = useState({
     name: product.name || "",
@@ -25,23 +29,38 @@ export function EditProductModal({ product, onClose }: { product: any; onClose: 
   const [categories, setCategories] = useState<any[]>([]);
 
   useEffect(() => {
-    fetch("/api/categories").then(res => res.json()).then(setCategories).catch(console.error);
-  }, []);
+    getLocalDb().then(async (db) => {
+      const { categories: cats } = await import("@/db/schema");
+      const c = await db.select().from(cats).where(eq(cats.storeId, storeId));
+      setCategories(c);
+    }).catch(console.error);
+  }, [storeId]);
 
   async function save() {
     if (!form.name || !form.sellingPrice) return;
     setSaving(true);
     try {
-      const res = await fetch(`/api/products/${product.id}`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(form),
-      });
-      const data = await res.json();
-      if (data.ok) {
-        onClose();
-        router.refresh();
-      } else alert(data.error || "Failed");
+      const db = await getLocalDb();
+      await db.update(products).set({
+        name: form.name,
+        category: form.category || null,
+        hsnCode: form.hsnCode || null,
+        unit: form.unit || "PCS",
+        purchasePrice: form.purchasePrice || "0",
+        sellingPrice: form.sellingPrice || "0",
+        gstRate: String(form.gstRate ?? 18),
+        minStockLevel: form.minStockLevel || "0",
+        currentStock: form.currentStock || "0",
+        rackLocation: form.rackLocation || null,
+        trackExpiry: form.trackExpiry,
+        description: form.description || null,
+      }).where(eq(products.id, product.id));
+
+      onClose();
+      window.location.reload();
+    } catch(e) {
+      alert("Failed to save changes");
+      console.error(e);
     } finally { setSaving(false); }
   }
 

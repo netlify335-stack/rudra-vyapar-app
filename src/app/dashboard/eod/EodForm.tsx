@@ -4,10 +4,12 @@ import { useState } from "react";
 import { formatINR } from "@/lib/format";
 
 export function EodForm({
+  storeId,
   todayStr,
   netCashFlow,
   netUpiFlow,
 }: {
+  storeId: string;
   todayStr: string;
   netCashFlow: number;
   netUpiFlow: number;
@@ -34,22 +36,21 @@ export function EodForm({
     if (!confirm(`Are you sure you want to finalize EOD for ${todayStr}?`)) return;
     setLoading(true);
     try {
-      const res = await fetch("/api/eod", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          reportDate: todayStr,
-          openingBalance: openBal,
-          expectedCash,
-          actualCash: actCash,
-          expectedUpi,
-          actualUpi: actUpi,
-          discrepancy: totalDiscrepancy,
-          notes,
-        }),
+      const { getLocalDb } = await import("@/db/local");
+      const { eodReports } = await import("@/db/schema");
+      const db = await getLocalDb();
+
+      await db.insert(eodReports).values({
+        storeId,
+        reportDate: todayStr,
+        openingBalance: String(openBal),
+        expectedCash: String(expectedCash),
+        actualCash: String(actCash),
+        expectedUpi: String(expectedUpi),
+        actualUpi: String(actUpi),
+        discrepancy: String(totalDiscrepancy),
+        notes,
       });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error);
       
       setDone(true);
     } catch (err) {

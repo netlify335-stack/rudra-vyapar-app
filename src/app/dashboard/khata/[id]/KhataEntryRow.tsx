@@ -2,7 +2,9 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { formatINR, formatDate } from "@/lib/format";
-
+import { getLocalDb } from "@/db/local";
+import { parties, khataEntries } from "@/db/schema";
+import { eq, sql } from "drizzle-orm";
 export function KhataEntryRow({ entry }: { entry: any }) {
   const router = useRouter();
   const [editing, setEditing] = useState(false);
@@ -17,15 +19,30 @@ export function KhataEntryRow({ entry }: { entry: any }) {
     if (!form.amount || Number(form.amount) <= 0) return;
     setSaving(true);
     try {
-      const res = await fetch(`/api/khata/${entry.id}`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(form),
-      });
-      if (res.ok) {
-        setEditing(false);
-        router.refresh();
-      } else alert("Failed to update");
+      const db = await getLocalDb();
+      const oldDelta = entry.type === "credit" ? -Number(entry.amount) : Number(entry.amount);
+      const newDelta = form.type === "credit" ? Number(form.amount) : -Number(form.amount);
+      const netDelta = oldDelta + newDelta;
+
+      await db
+        .update(parties)
+        .set({ outstandingBalance: sql`${parties.outstandingBalance} + ${netDelta}` })
+        .where(eq(parties.id, entry.partyId));
+
+      await db
+        .update(khataEntries)
+        .set({
+          amount: String(form.amount),
+          type: form.type,
+          notes: form.notes,
+        })
+        .where(eq(khataEntries.id, entry.id));
+
+      setEditing(false);
+      window.location.reload();
+    } catch (e) {
+      alert("Failed to update");
+      console.error(e);
     } finally { setSaving(false); }
   }
 
@@ -33,9 +50,20 @@ export function KhataEntryRow({ entry }: { entry: any }) {
     if (!confirm("Are you sure you want to delete this entry?")) return;
     setSaving(true);
     try {
-      const res = await fetch(`/api/khata/${entry.id}`, { method: "DELETE" });
-      if (res.ok) router.refresh();
-      else alert("Failed to delete");
+      const db = await getLocalDb();
+      const delta = entry.type === "credit" ? -Number(entry.amount) : Number(entry.amount);
+
+      await db
+        .update(parties)
+        .set({ outstandingBalance: sql`${parties.outstandingBalance} + ${delta}` })
+        .where(eq(parties.id, entry.partyId));
+
+      await db.delete(khataEntries).where(eq(khataEntries.id, entry.id));
+
+      window.location.reload();
+    } catch (e) {
+      alert("Failed to delete");
+      console.error(e);
     } finally { setSaving(false); }
   }
 

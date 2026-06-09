@@ -3,8 +3,13 @@
 import { useState } from "react";
 import { formatNumber } from "@/lib/format";
 
+import { getLocalDb } from "@/db/local";
+import { inventoryAdjustments, products } from "@/db/schema";
+import { eq, sql } from "drizzle-orm";
+
 export function AdjustStockModal({
   product,
+  storeId,
   onClose,
   onAdjusted,
 }: {
@@ -14,6 +19,7 @@ export function AdjustStockModal({
     currentStock: string;
     unit: string;
   };
+  storeId: string;
   onClose: () => void;
   onAdjusted: () => void;
 }) {
@@ -24,27 +30,36 @@ export function AdjustStockModal({
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    if (!quantity || Number(quantity) <= 0) return alert("Enter a valid quantity");
+    if (!quantity || Number(quantity) === 0) return alert("Enter a valid quantity");
     
     setLoading(true);
     try {
-      const res = await fetch("/api/inventory/adjust", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
+      let actualQty = Number(quantity);
+      if (type === "damage" || type === "loss") {
+        actualQty = -Math.abs(Number(quantity));
+      }
+
+      const db = await getLocalDb();
+      await db.transaction(async (tx) => {
+        await tx.insert(inventoryAdjustments).values({
+          storeId,
           productId: product.id,
           type,
-          quantity: Number(quantity),
+          quantity: String(actualQty),
           reason,
-        }),
+        });
+
+        await tx.update(products)
+          .set({ currentStock: sql`${products.currentStock} + ${actualQty}` })
+          .where(eq(products.id, product.id));
       });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error);
-      
+
       onAdjusted();
       onClose();
     } catch (err) {
       alert((err as Error).message);
+      console.error(err);
+    } finally {
       setLoading(false);
     }
   }

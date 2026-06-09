@@ -1,9 +1,10 @@
 "use client";
 import { useState } from "react";
-import { useRouter } from "next/navigation";
+import { getLocalDb } from "@/db/local";
+import { khataEntries, parties } from "@/db/schema";
+import { eq, sql } from "drizzle-orm";
 
-export function KhataAdd({ partyId }: { partyId: string }) {
-  const router = useRouter();
+export function KhataAdd({ partyId, storeId }: { partyId: string; storeId: string }) {
   const [type, setType] = useState<"credit" | "debit">("credit");
   const [amount, setAmount] = useState("");
   const [notes, setNotes] = useState("");
@@ -13,14 +14,28 @@ export function KhataAdd({ partyId }: { partyId: string }) {
     if (!amount || Number(amount) <= 0) return;
     setSaving(true);
     try {
-      await fetch("/api/khata", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ partyId, type, amount: Number(amount), notes }),
+      const db = await getLocalDb();
+      await db.insert(khataEntries).values({
+        storeId,
+        partyId,
+        type,
+        amount: String(amount),
+        notes,
+        entryDate: new Date().toISOString().slice(0, 10),
       });
+
+      const delta = type === "credit" ? Number(amount) : -Number(amount);
+      await db
+        .update(parties)
+        .set({ outstandingBalance: sql`${parties.outstandingBalance} + ${delta}` })
+        .where(eq(parties.id, partyId));
+
       setAmount("");
       setNotes("");
-      router.refresh();
+      window.location.reload();
+    } catch (e) {
+      alert("Failed to add entry");
+      console.error(e);
     } finally { setSaving(false); }
   }
 

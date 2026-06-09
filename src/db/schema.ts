@@ -12,19 +12,12 @@ import {
   jsonb,
 } from "drizzle-orm/pg-core";
 
-// Users / store owners
-export const users = pgTable("users", {
-  id: uuid("id").defaultRandom().primaryKey(),
-  phone: varchar("phone", { length: 15 }).unique(),
-  email: varchar("email", { length: 255 }).unique(),
-  name: varchar("name", { length: 255 }),
-  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
-});
+// users table is managed remotely in neonSchema.ts
 
 // Stores
 export const stores = pgTable("stores", {
   id: uuid("id").defaultRandom().primaryKey(),
-  ownerId: uuid("owner_id").references(() => users.id),
+  ownerId: uuid("owner_id"),
   name: varchar("name", { length: 255 }).notNull(),
   type: varchar("type", { length: 50 }).default("kirana"),
   businessType: varchar("business_type", { length: 100 }), // e.g. pharmacy, clothing, hardware
@@ -322,20 +315,7 @@ export const expenses = pgTable("expenses", {
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
 });
 
-// Licenses for Admin App
-export const licenses = pgTable("licenses", {
-  id: uuid("id").defaultRandom().primaryKey(),
-  key: varchar("key", { length: 50 }).unique().notNull(), // e.g. RUDRA-XYZ
-  name: varchar("name", { length: 255 }).notNull(), // User assigned name
-  deviceIds: jsonb("device_ids").default('[]').notNull(), // Array of bound device IDs
-  maxDevices: integer("max_devices").default(1).notNull(), // Volume constraint
-  storeId: uuid("store_id").references(() => stores.id), // The store linked to this license
-  validMonths: integer("valid_months").notNull(),
-  expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
-  isPaused: boolean("is_paused").default(false).notNull(), // User or Admin can pause
-  isRevoked: boolean("is_revoked").default(false).notNull(),
-  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
-});
+// licenses table is managed remotely in neonSchema.ts
 
 // EOD Reports
 export const eodReports = pgTable("eod_reports", {

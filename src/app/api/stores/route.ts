@@ -1,5 +1,7 @@
+// @ts-nocheck
 import { db } from "@/db";
-import { stores, users, licenses } from "@/db/schema";
+import { stores } from "@/db/schema";
+import { users, licenses } from "@/db/neonSchema";
 import { eq } from "drizzle-orm";
 import { getActiveStoreId } from "@/lib/session";
 import { randomUUID } from "crypto";

@@ -3,7 +3,10 @@ import { useState, useEffect, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import { Trash2 } from "lucide-react";
 
-export function AddProductForm() {
+import { getLocalDb } from "@/db/local";
+import { products, productUnits, productExtras, productVariants, batches } from "@/db/schema";
+
+export function AddProductForm({ storeId }: { storeId: string }) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [form, setForm] = useState({
@@ -40,10 +43,20 @@ export function AddProductForm() {
 
   useEffect(() => {
     if (open) {
-      fetch("/api/categories").then(res => res.json()).then(setCategories).catch(console.error);
-      fetch("/api/store-extras").then(res => res.json()).then(setStoreExtras).catch(console.error);
+      // For Categories and StoreExtras, we should also probably query local DB but we can just use fetch for them if they aren't refactored yet, or query local DB.
+      // Wait, let's query local DB!
+      getLocalDb().then(async (db) => {
+        const { categories: cats, storeExtras: extras } = await import("@/db/schema");
+        const { eq } = await import("drizzle-orm");
+        
+        const c = await db.select().from(cats).where(eq(cats.storeId, storeId));
+        setCategories(c);
+        
+        const e = await db.select().from(extras).where(eq(extras.storeId, storeId));
+        setStoreExtras(e);
+      }).catch(console.error);
     }
-  }, [open]);
+  }, [open, storeId]);
 
   // Derived Extras
   const availableColors = storeExtras.filter(e => e.type === "color");
@@ -107,32 +120,87 @@ export function AddProductForm() {
       }));
 
     const allExtras = [...selectedColors, ...selectedSizes, ...selectedMaterials];
-
-    const payload = {
-      ...form,
-      units,
-      extras: allExtras,
-      variants: activeVariants
-    };
+    const hasVariants = activeVariants.length > 0;
 
     try {
-      const res = await fetch("/api/products", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-      });
-      const data = await res.json();
-      if (data.ok) {
-        setOpen(false);
-        setForm({ ...form, name: "", sellingPrice: "", purchasePrice: "", currentStock: "0", description: "", expiryPeriod: "none", rackLocation: "" });
-        setUnits([]);
-        setSelectedColors([]);
-        setSelectedSizes([]);
-        setSelectedMaterials([]);
-        setDiffPrices({ color: false, size: false, material: false });
-        setVariantData({});
-        router.refresh();
-      } else alert(data.error || "Failed");
+      const db = await getLocalDb();
+      const [row] = await db.insert(products).values({
+        storeId,
+        name: form.name,
+        category: form.category || null,
+        hsnCode: form.hsnCode || null,
+        unit: form.unit || "PCS",
+        purchasePrice: form.purchasePrice || "0",
+        sellingPrice: form.sellingPrice || "0",
+        gstRate: String(form.gstRate ?? 18),
+        minStockLevel: form.minStockLevel || "0",
+        currentStock: hasVariants ? "0" : (form.currentStock || "0"),
+        rackLocation: form.rackLocation || null,
+        trackExpiry: !!form.trackExpiry || (form.expiryPeriod !== undefined && form.expiryPeriod !== "none"),
+        description: form.description || null,
+        hasVariants: !!hasVariants,
+      }).returning();
+
+      if (units.length > 0) {
+        await db.insert(productUnits).values(
+          units.map(u => ({
+            productId: row.id,
+            unitName: u.unitName,
+            conversionRate: String(u.conversionRate),
+            price: u.price || null,
+          }))
+        );
+      }
+
+      if (allExtras.length > 0) {
+        await db.insert(productExtras).values(
+          allExtras.map(extraId => ({
+            productId: row.id,
+            extraId,
+          }))
+        );
+      }
+
+      if (hasVariants) {
+        await db.insert(productVariants).values(
+          activeVariants.map(v => ({
+            productId: row.id,
+            sizeId: v.sizeId || null,
+            colorId: v.colorId || null,
+            materialId: v.materialId || null,
+            price: v.price || form.sellingPrice || "0",
+            currentStock: v.currentStock || "0",
+          }))
+        );
+      }
+
+      if (!hasVariants && form.expiryPeriod && form.expiryPeriod !== "none" && Number(form.currentStock || "0") > 0) {
+        const months = Number(form.expiryPeriod);
+        const expiryDate = new Date();
+        expiryDate.setMonth(expiryDate.getMonth() + months);
+        
+        await db.insert(batches).values({
+          storeId,
+          productId: row.id,
+          batchNo: `AUTO-${Date.now().toString().slice(-6)}`,
+          mfgDate: new Date().toISOString().slice(0, 10),
+          expiryDate: expiryDate.toISOString().slice(0, 10),
+          quantity: form.currentStock || "0",
+        });
+      }
+
+      setOpen(false);
+      setForm({ ...form, name: "", sellingPrice: "", purchasePrice: "", currentStock: "0", description: "", expiryPeriod: "none", rackLocation: "" });
+      setUnits([]);
+      setSelectedColors([]);
+      setSelectedSizes([]);
+      setSelectedMaterials([]);
+      setDiffPrices({ color: false, size: false, material: false });
+      setVariantData({});
+      window.location.reload();
+    } catch(e) {
+      alert("Failed to save product");
+      console.error(e);
     } finally { setSaving(false); }
   }
 

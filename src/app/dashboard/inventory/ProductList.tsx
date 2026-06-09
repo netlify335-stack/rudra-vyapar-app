@@ -5,7 +5,11 @@ import { formatINR, formatNumber } from "@/lib/format";
 import { EditProductModal } from "./EditProductModal";
 import { AdjustStockModal } from "./AdjustStockModal";
 
-export function ProductList({ initialList }: { initialList: any[] }) {
+import { getLocalDb } from "@/db/local";
+import { products } from "@/db/schema";
+import { eq } from "drizzle-orm";
+
+export function ProductList({ initialList, storeId }: { initialList: any[]; storeId: string }) {
   const [filterCategory, setFilterCategory] = useState("All");
   const [visibleCount, setVisibleCount] = useState(20);
   const [editingProduct, setEditingProduct] = useState<any>(null);
@@ -23,18 +27,20 @@ export function ProductList({ initialList }: { initialList: any[] }) {
 
   const deleteProduct = async (id: string, name: string) => {
     if (!confirm(`Are you sure you want to delete ${name}?`)) return;
-    const res = await fetch(`/api/products/${id}`, { method: "DELETE" });
-    if (res.ok) {
+    try {
+      const db = await getLocalDb();
+      await db.delete(products).where(eq(products.id, id));
       window.location.reload();
-    } else {
+    } catch(e) {
       alert("Failed to delete product");
+      console.error(e);
     }
   };
 
   return (
     <div>
-      {editingProduct && <EditProductModal product={editingProduct} onClose={() => setEditingProduct(null)} />}
-      {adjustingProduct && <AdjustStockModal product={adjustingProduct} onClose={() => setAdjustingProduct(null)} onAdjusted={() => window.location.reload()} />}
+      {editingProduct && <EditProductModal product={editingProduct} storeId={storeId} onClose={() => setEditingProduct(null)} />}
+      {adjustingProduct && <AdjustStockModal product={adjustingProduct} storeId={storeId} onClose={() => setAdjustingProduct(null)} onAdjusted={() => window.location.reload()} />}
       <div className="flex items-center gap-4 border-b border-slate-100 p-4">
         <div className="text-sm font-semibold text-slate-700">Filter by Category:</div>
         <select

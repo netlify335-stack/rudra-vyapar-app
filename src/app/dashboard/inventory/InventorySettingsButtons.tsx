@@ -4,7 +4,7 @@ import { ManageCategoriesModal } from "./ManageCategoriesModal";
 import { ManageExtrasModal } from "./ManageExtrasModal";
 import { Settings, Tags } from "lucide-react";
 
-export function InventorySettingsButtons() {
+export function InventorySettingsButtons({ storeId }: { storeId: string }) {
   const [openCat, setOpenCat] = useState(false);
   const [openExt, setOpenExt] = useState(false);
 
@@ -25,8 +25,8 @@ export function InventorySettingsButtons() {
         </button>
       </div>
 
-      <ManageCategoriesModal open={openCat} onClose={() => setOpenCat(false)} />
-      <ManageExtrasModal open={openExt} onClose={() => setOpenExt(false)} />
+      <ManageCategoriesModal open={openCat} storeId={storeId} onClose={() => setOpenCat(false)} />
+      <ManageExtrasModal open={openExt} storeId={storeId} onClose={() => setOpenExt(false)} />
     </>
   );
 }
