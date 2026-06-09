@@ -77,6 +77,7 @@ export function BackupRestoreCard() {
       const client = window.google.accounts.oauth2.initTokenClient({
         client_id: clientId,
         scope: "https://www.googleapis.com/auth/drive.file",
+        prompt: "select_account",
         callback: (response: any) => {
           if (response.error !== undefined) {
             reject(response);
