@@ -5,6 +5,23 @@ import { useState, useRef, useEffect } from "react";
 import { getLocalDb } from "@/db/local";
 import { stores, parties, products, productVariants, batches, storeExtras, invoices, invoiceItems, expenses, khataEntries } from "@/db/schema";
 
+declare global {
+  interface Window {
+    google: {
+      accounts: {
+        oauth2: {
+          initTokenClient: (config: {
+            client_id: string;
+            scope: string;
+            prompt?: string;
+            callback: (response: { access_token: string; error?: string }) => void;
+          }) => { requestAccessToken: () => void };
+        };
+      };
+    };
+  }
+}
+
 export function BackupRestoreCard() {
   const [loading, setLoading] = useState(false);
   const [msg, setMsg] = useState("");
